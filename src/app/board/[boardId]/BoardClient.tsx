@@ -1,10 +1,14 @@
 "use client";
 
-import { auth, rtdb } from "@/lib/firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import { auth, db, rtdb } from "@/lib/firebase";
+import type { BoardItem } from "@/types/board";
+import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { collection, onSnapshot } from "firebase/firestore";
 import { onDisconnect, onValue, ref, serverTimestamp, set, update } from "firebase/database";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+
 
 type Presence = {
   name: string;
@@ -24,12 +28,24 @@ function pickColor(seed: string) {
 }
 
 export default function BoardClient({ boardId }: { boardId: string }) {
-  const [uid, setUid] = useState<string | null>(auth.currentUser?.uid ?? null);
+  const [uid, setUid] = useState<string | null | undefined>(undefined);
   const [presenceMap, setPresenceMap] = useState<Record<string, Presence>>({});
+  const [boardItems, setBoardItems] = useState<Record<string, BoardItem>>({});
   const localSessionId = useMemo(() => nanoid(), []);
   const myPresencePath = uid ? `presence/${boardId}/${uid}-${localSessionId}` : null;
-
-  useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid ?? null)), []);
+  
+  const signInHere = async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  };
+  
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUid(u?.uid ?? null);
+    });
+    return unsub;
+  }, []);
+  
 
   useEffect(() => {
     const pRef = ref(rtdb, `presence/${boardId}`);
@@ -37,6 +53,27 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         const val = snap.val() as Record<string, Presence> | null;
         setPresenceMap(val ?? {});
     });
+  }, [boardId]);
+
+  useEffect(() => {
+    const itemsRef = collection(db, "boards", boardId, "items");
+    const unsubscribe = onSnapshot(itemsRef, (snapshot) => {
+      const items: Record<string, BoardItem> = {};
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        items[doc.id] = {
+          id: doc.id,
+          type: "sticky",
+          x: data.x ?? 0,
+          y: data.y ?? 0,
+          text: data.text ?? "",
+          createdBy: data.createdBy ?? "",
+          updatedAt: data.updatedAt,
+        };
+      });
+      setBoardItems(items);
+    });
+    return unsubscribe;
   }, [boardId]);
 
   useEffect(() => {
@@ -89,19 +126,35 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     return () => window.removeEventListener("mousemove", onMove);
   }, [uid, myPresencePath]);
 
-  if (!uid) {
-    return <div className="p-6">Please sign in first.</div>;
-  }
-
   return (
     <main className="h-screen w-screen relative overflow-hidden bg-neutral-950 text-white">
-      <div className="absolute top-3 left-3 z-10 text-xs bg-black/60 rounded px-3 py-2 space-y-1">
-        <div>Board: {boardId}</div>
-        <div>UID: {uid ?? "null (not signed in)"}</div>
-        <div>My path: {myPresencePath ?? "null"}</div>
-        <div>Presence keys: {Object.keys(presenceMap).length}</div>
-        <div>Online: {Object.values(presenceMap).filter((p) => p?.isOnline).length}</div>
-      </div>
+      {uid === undefined && (
+        <div className="absolute top-24 left-3 z-10 text-sm bg-black/60 rounded px-3 py-2">
+          Loading auth...
+        </div>
+      )}
+      {uid === null && (
+        <div className="absolute top-24 left-3 z-10 text-sm bg-black/60 rounded px-3 py-2 space-y-2">
+          <div>Not signed in on this route.</div>
+          <button className="underline text-blue-500 cursor-pointer" onClick={signInHere}>
+            Sign in with Google
+          </button>
+          <div className="opacity-70 text-xs">
+          Tip: use the same URL origin (prefer <Link className="underline" href="http://localhost:3000">http://localhost:3000</Link>).
+          </div>
+        </div>
+      )}
+
+
+      {Object.values(boardItems).map((item) => (
+        <div
+          key={item.id}
+          className="absolute z-10 w-48 min-h-24 p-3 rounded-lg shadow-lg bg-amber-100 text-neutral-900 text-sm"
+          style={{ left: item.x, top: item.y }}
+        >
+          {item.text || "Sticky"}
+        </div>
+      ))}
 
       {Object.entries(presenceMap).map(([key, p]) => {
         if (!p?.isOnline) return null;
