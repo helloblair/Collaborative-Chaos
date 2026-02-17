@@ -3,11 +3,14 @@
 import { auth, db, rtdb } from "@/lib/firebase";
 import type { BoardItem } from "@/types/board";
 import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { collection, onSnapshot } from "firebase/firestore";
-import { onDisconnect, onValue, ref, serverTimestamp, set, update } from "firebase/database";
+import { addDoc, collection, onSnapshot, serverTimestamp } from "firebase/firestore";
+import { onDisconnect, onValue, ref, serverTimestamp as rtdbServerTimestamp, set, update } from "firebase/database";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+
+const STICKY_WIDTH = 192;
+const STICKY_HEIGHT = 96;
 
 
 type Presence = {
@@ -76,6 +79,21 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     return unsubscribe;
   }, [boardId]);
 
+  const handleAddSticky = useCallback(async () => {
+    if (!uid) return;
+    const x = Math.round(window.innerWidth / 2 - STICKY_WIDTH / 2);
+    const y = Math.round(window.innerHeight / 2 - STICKY_HEIGHT / 2);
+    const itemsRef = collection(db, "boards", boardId, "items");
+    await addDoc(itemsRef, {
+      type: "sticky",
+      x,
+      y,
+      text: "New note",
+      createdBy: uid,
+      updatedAt: serverTimestamp(),
+    });
+  }, [boardId, uid]);
+
   useEffect(() => {
     if (!uid || !myPresencePath) return;
 
@@ -88,15 +106,15 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       cursorX: 0,
       cursorY: 0,
       isOnline: true,
-      lastActive: serverTimestamp(),
+      lastActive: rtdbServerTimestamp(),
     };
 
     set(myRef, data);
 
-    onDisconnect(myRef).update({ isOnline: false, lastActive: serverTimestamp() });
+    onDisconnect(myRef).update({ isOnline: false, lastActive: rtdbServerTimestamp() });
 
     const interval = setInterval(() => {
-      update(myRef, { lastActive: serverTimestamp(), isOnline: true });
+      update(myRef, { lastActive: rtdbServerTimestamp(), isOnline: true });
     }, 8000);
 
     return () => clearInterval(interval);
@@ -117,7 +135,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       update(myRef, {
         cursorX: e.clientX,
         cursorY: e.clientY,
-        lastActive: serverTimestamp(),
+        lastActive: rtdbServerTimestamp(),
         isOnline: true,
       });
     };
@@ -145,11 +163,21 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         </div>
       )}
 
+      {uid && (
+        <button
+          type="button"
+          onClick={handleAddSticky}
+          className="fixed bottom-6 right-6 z-30 px-4 py-2 rounded-lg shadow-lg bg-amber-400 hover:bg-amber-500 text-neutral-900 font-medium text-sm transition-colors"
+          aria-label="Add sticky note"
+        >
+          Add Sticky
+        </button>
+      )}
 
       {Object.values(boardItems).map((item) => (
         <div
           key={item.id}
-          className="absolute z-10 w-48 min-h-24 p-3 rounded-lg shadow-lg bg-amber-100 text-neutral-900 text-sm"
+          className="absolute z-10 w-48 min-h-24 p-3 rounded-lg shadow-lg bg-amber-100 text-neutral-900 text-sm border border-amber-200"
           style={{ left: item.x, top: item.y }}
         >
           {item.text || "Sticky"}
