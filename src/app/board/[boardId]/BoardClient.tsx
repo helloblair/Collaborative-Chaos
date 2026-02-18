@@ -8,9 +8,13 @@ import { onDisconnect, onValue, ref, serverTimestamp as rtdbServerTimestamp, set
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import { BoardCanvas } from "./BoardCanvas";
 
-const STICKY_WIDTH = 192;
-const STICKY_HEIGHT = 96;
+const STICKY_SIZE = 160;
+const RECT_WIDTH = 200;
+const RECT_HEIGHT = 120;
+const RECT_FILL = "#C6DEF1";
+const TOOLBAR_HEIGHT = 56;
 
 type Presence = {
   name: string;
@@ -38,9 +42,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastBoardClick, setLastBoardClick] = useState<{ x: number; y: number } | null>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const boardRef = useRef<HTMLElement | null>(null);
   const localSessionId = useMemo(() => nanoid(), []);
+
+  useEffect(() => {
+    const measure = () =>
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
 
   // Drag state
   const [dragState, setDragState] = useState<{
@@ -81,12 +95,16 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       const items: Record<string, BoardItem> = {};
       snapshot.docs.forEach((d) => {
         const data = d.data();
+        const type = data.type === "rect" ? "rect" : "sticky";
         items[d.id] = {
           id: d.id,
-          type: "sticky",
+          type,
           x: data.x ?? 0,
           y: data.y ?? 0,
           text: data.text ?? "",
+          width: data.width,
+          height: data.height,
+          fill: data.fill,
           createdBy: data.createdBy ?? "",
           updatedAt: data.updatedAt,
         };
@@ -107,6 +125,33 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     [dragState]
   );
 
+  // Rectangle creation: spawn at viewport center in world coords (default transform)
+  const handleAddRect = useCallback(async () => {
+    if (!uid || typeof uid !== "string") return;
+    setCreateError(null);
+    setIsCreating(true);
+    const spawnX = Math.round(viewportSize.width / 2 - RECT_WIDTH / 2);
+    const spawnY = Math.round(viewportSize.height / 2 - RECT_HEIGHT / 2);
+    try {
+      const itemsRef = collection(db, "boards", boardId, "items");
+      await addDoc(itemsRef, {
+        type: "rect",
+        x: spawnX,
+        y: spawnY,
+        width: RECT_WIDTH,
+        height: RECT_HEIGHT,
+        fill: RECT_FILL,
+        createdBy: uid,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create rectangle";
+      setCreateError(msg);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+
   // B) Reliable sticky creation with try/catch and feedback
   const handleAddSticky = useCallback(async () => {
     if (!uid || typeof uid !== "string") return;
@@ -117,16 +162,16 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     let spawnY: number;
 
     if (lastBoardClick) {
-      spawnX = Math.max(0, lastBoardClick.x - STICKY_WIDTH / 2);
-      spawnY = Math.max(0, lastBoardClick.y - STICKY_HEIGHT / 2);
+      spawnX = Math.max(0, lastBoardClick.x - STICKY_SIZE / 2);
+      spawnY = Math.max(0, lastBoardClick.y - STICKY_SIZE / 2);
     } else {
       const rect = boardRef.current?.getBoundingClientRect();
       if (rect) {
-        spawnX = Math.round(rect.left + rect.width / 2 - STICKY_WIDTH / 2);
-        spawnY = Math.round(rect.top + rect.height / 2 - STICKY_HEIGHT / 2);
+        spawnX = Math.round(rect.left + rect.width / 2 - STICKY_SIZE / 2);
+        spawnY = Math.round(rect.top + rect.height / 2 - STICKY_SIZE / 2);
       } else {
-        spawnX = Math.round(window.innerWidth / 2 - STICKY_WIDTH / 2);
-        spawnY = Math.round(window.innerHeight / 2 - STICKY_HEIGHT / 2);
+        spawnX = Math.round(window.innerWidth / 2 - STICKY_SIZE / 2);
+        spawnY = Math.round(window.innerHeight / 2 - STICKY_SIZE / 2);
       }
     }
 
@@ -158,7 +203,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
   const startEditing = useCallback((item: BoardItem) => {
     setEditingId(item.id);
-    setEditingText(item.text);
+    setEditingText(item.text ?? "");
   }, []);
 
   const persistStickyText = useCallback(
@@ -190,6 +235,38 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   );
 
   const draggingItemId = dragState?.itemId ?? null;
+
+  const handleCanvasMoveEnd = useCallback(
+    async (id: string, x: number, y: number) => {
+      try {
+        const itemsRef = collection(db, "boards", boardId, "items");
+        const itemRef = doc(itemsRef, id);
+        await updateDoc(itemRef, {
+          x: Math.round(x),
+          y: Math.round(y),
+          updatedAt: serverTimestamp(),
+        });
+      } catch {
+        // Revert will happen via Firestore sync
+      }
+    },
+    [boardId]
+  );
+
+  const handleTextCommit = useCallback(
+    async (id: string, nextText: string) => {
+      try {
+        const itemsRef = collection(db, "boards", boardId, "items");
+        const itemRef = doc(itemsRef, id);
+        await updateDoc(itemRef, { text: nextText, updatedAt: serverTimestamp() });
+      } catch {
+        // Revert will happen via Firestore sync
+      }
+    },
+    [boardId]
+  );
+
+  const itemsArray = useMemo(() => Object.values(boardItems), [boardItems]);
 
   // D) Drag handlers: mousedown → mousemove → mouseup (persist on drop)
   const handleStickyMouseDown = useCallback(
@@ -326,29 +403,87 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     });
   }, [boardItems, activeItemId]);
 
+  const presenceCount = useMemo(
+    () =>
+      Object.entries(presenceMap).filter(
+        ([key, p]) => p?.isOnline && !(uid && key.startsWith(`${uid}-`))
+      ).length,
+    [presenceMap, uid]
+  );
+  const canvasHeight = Math.max(0, viewportSize.height - TOOLBAR_HEIGHT);
+
   return (
     <main
       ref={boardRef}
       data-board-background
-      className="h-screen w-screen relative overflow-hidden bg-neutral-950 text-white"
+      className="h-screen w-screen relative overflow-hidden bg-gray-50 text-gray-900"
       onClick={handleBoardClick}
     >
-      {/* E) HUD: pointer-events-none on container, pointer-events-auto on interactive elements */}
+      {/* Top toolbar */}
+      <header className="fixed top-0 left-0 right-0 z-40 h-14 bg-white shadow-sm px-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          {uid && (
+            <>
+              <button
+                type="button"
+                onClick={handleAddSticky}
+                disabled={isCreating}
+                className="rounded-lg px-4 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors"
+                aria-label="Add sticky note"
+              >
+                {isCreating ? "Creating…" : "Add Sticky"}
+              </button>
+              <button
+                type="button"
+                onClick={handleAddRect}
+                disabled={isCreating}
+                className="rounded-lg px-4 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors"
+                aria-label="Add rectangle"
+              >
+                {isCreating ? "Creating…" : "Add Rectangle"}
+              </button>
+            </>
+          )}
+        </div>
+        {presenceCount > 0 && (
+          <span className="text-gray-500 text-sm tabular-nums">
+            {presenceCount === 1 ? "1 person online" : `${presenceCount} people online`}
+          </span>
+        )}
+      </header>
+
+      {/* Canvas fills viewport below toolbar */}
+      <div className="absolute top-14 left-0 right-0 bottom-0 z-0">
+        {viewportSize.width > 0 && canvasHeight > 0 && (
+          <BoardCanvas
+            width={viewportSize.width}
+            height={canvasHeight}
+            items={itemsArray}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onMoveEnd={handleCanvasMoveEnd}
+            onTextCommit={handleTextCommit}
+          />
+        )}
+      </div>
+
       {uid === undefined && (
         <div className="absolute top-24 left-3 z-40 pointer-events-none">
-          <div className="text-sm bg-black/60 rounded px-3 py-2">Loading auth...</div>
+          <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 border border-gray-200 shadow-sm">
+            Loading auth...
+          </div>
         </div>
       )}
       {uid === null && (
         <div className="absolute top-24 left-3 z-40 pointer-events-none">
-          <div className="text-sm bg-black/60 rounded px-3 py-2 space-y-2">
+          <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 space-y-2 border border-gray-200 shadow-sm max-w-xs">
             <div>Not signed in on this route.</div>
             <div className="pointer-events-auto">
-              <button className="underline text-blue-500 cursor-pointer" onClick={signInHere}>
+              <button className="underline text-blue-600 cursor-pointer hover:text-blue-700" onClick={signInHere}>
                 Sign in with Google
               </button>
             </div>
-            <div className="opacity-70 text-xs">
+            <div className="text-gray-500 text-xs">
               Tip: use the same URL origin (prefer{" "}
               <Link className="underline pointer-events-auto" href="http://localhost:3000">
                 http://localhost:3000
@@ -359,31 +494,16 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         </div>
       )}
 
-      {/* B) Error HUD - top-left */}
       {createError && uid && (
         <div className="absolute top-24 left-3 z-40 pointer-events-none">
-          <div className="text-sm bg-red-900/80 text-red-100 rounded px-3 py-2 max-w-xs">
+          <div className="text-sm bg-red-50 text-red-800 rounded-lg px-3 py-2 max-w-xs border border-red-200">
             {createError}
           </div>
         </div>
       )}
 
-      {uid && (
-        <div className="fixed bottom-6 right-6 z-30 pointer-events-none">
-          <button
-            type="button"
-            onClick={handleAddSticky}
-            disabled={isCreating}
-            className="pointer-events-auto px-4 py-2 rounded-lg shadow-lg bg-amber-400 hover:bg-amber-500 disabled:opacity-60 disabled:cursor-not-allowed text-neutral-900 font-medium text-sm transition-colors"
-            aria-label="Add sticky note"
-          >
-            {isCreating ? "Creating…" : "Add Sticky"}
-          </button>
-        </div>
-      )}
-
-      {/* A) Only show stickies when authenticated */}
-      {uid && sortedItems.map((item) => {
+      {/* A) Only show stickies when authenticated - DOM stickies temporarily hidden (rendered via Konva) */}
+      {false && uid && sortedItems.map((item) => {
         const display = getDisplayItem(item);
         const isActive = activeItemId === item.id || (dragState?.itemId === item.id);
         return (
@@ -437,7 +557,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             style={{ left: p.cursorX + 10, top: p.cursorY + 10 }}
           >
             <div
-              className="text-[11px] px-2 py-1 rounded bg-black/70"
+              className="text-[11px] px-2 py-1 rounded bg-gray-800/90 border border-gray-600/50"
               style={{ color: p.color }}
             >
               {p.name}
