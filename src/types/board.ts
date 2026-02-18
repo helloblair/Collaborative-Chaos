@@ -1,9 +1,12 @@
 export type BoardItem = {
   id: string;
-  type: "sticky";
+  type: "sticky" | "rect";
   x: number;
   y: number;
-  text: string;
+  text?: string;
+  width?: number;
+  height?: number;
+  fill?: string;
   createdBy: string;
-  updatedAt: unknown;
+  updatedAt?: unknown;
 };
