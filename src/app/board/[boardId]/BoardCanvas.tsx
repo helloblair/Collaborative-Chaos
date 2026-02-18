@@ -2,15 +2,17 @@
 
 import type { BoardItem } from "@/types/board";
 import type Konva from "konva";
-import { Group, Layer, Rect, Stage, Text } from "react-konva";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Group, Layer, Line, Rect, Stage, Text } from "react-konva";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const STICKY_WIDTH = 192;
-const STICKY_HEIGHT = 96;
+const STICKY_SIZE = 160;
 const STICKY_PADDING = 12;
 const SCALE_BY = 1.05;
 const MIN_SCALE = 0.4;
 const MAX_SCALE = 2.5;
+/** World extent for background and grid so they persist when panning/zooming (layer coords) */
+const WORLD_HALF = 20000;
+const GRID_STEP = 40;
 
 export type BoardCanvasProps = {
   width: number;
@@ -166,6 +168,19 @@ export function BoardCanvas({
 
   const editingItem = editingId ? items.find((i) => i.id === editingId) : null;
 
+  // Subtle grid lines every 40px across the full world so they persist when panning/zooming
+  const gridLines = useMemo(() => {
+    const vertical: number[] = [];
+    for (let x = -WORLD_HALF; x <= WORLD_HALF; x += GRID_STEP) {
+      vertical.push(x, -WORLD_HALF, x, WORLD_HALF);
+    }
+    const horizontal: number[] = [];
+    for (let y = -WORLD_HALF; y <= WORLD_HALF; y += GRID_STEP) {
+      horizontal.push(-WORLD_HALF, y, WORLD_HALF, y);
+    }
+    return { vertical, horizontal };
+  }, []);
+
   useEffect(() => {
     if (editingId && textareaRef.current) {
       textareaRef.current.focus();
@@ -191,22 +206,25 @@ export function BoardCanvas({
         onTouchEnd={handleStageTouchEnd}
       >
         <Layer>
-          {/* Background: must be first so it's behind stickies; hit when clicking empty space */}
+          {/* Background: full world extent so it persists when panning/zooming; hit when clicking empty space */}
           <Rect
             name="bg"
-            x={0}
-            y={0}
-            width={width}
-            height={height}
-            fill="#0a0a0a"
+            x={-WORLD_HALF}
+            y={-WORLD_HALF}
+            width={WORLD_HALF * 2}
+            height={WORLD_HALF * 2}
+            fill="#f5f5f5"
           />
+          {/* Subtle grid lines every 40px */}
+          <Line points={gridLines.vertical} stroke="#f3f4f6" strokeWidth={1} listening={false} />
+          <Line points={gridLines.horizontal} stroke="#f3f4f6" strokeWidth={1} listening={false} />
           {items.map((item) => {
             const isSelected = item.id === selectedId;
 
             if (item.type === "rect") {
               const w = item.width ?? 200;
               const h = item.height ?? 120;
-              const fill = item.fill ?? "#60a5fa";
+              const fill = item.fill ?? "#C6DEF1";
               return (
                 <Group
                   key={item.id}
@@ -234,10 +252,10 @@ export function BoardCanvas({
               );
             }
 
-            // sticky
-            const w = item.width ?? STICKY_WIDTH;
-            const h = item.height ?? STICKY_HEIGHT;
-            const fill = item.fill ?? "#fef3c7";
+            // sticky (square, mint default)
+            const w = item.width ?? STICKY_SIZE;
+            const h = item.height ?? STICKY_SIZE;
+            const fill = item.fill ?? "#C9E4DE";
             return (
               <Group
                 key={item.id}
@@ -285,12 +303,13 @@ export function BoardCanvas({
       {editingItem && editingId === editingItem.id && editingItem.type === "sticky" && (
         <textarea
             ref={textareaRef}
-            className="absolute border border-amber-400 rounded-lg shadow-lg resize-none outline-none z-50 bg-amber-50 text-neutral-900 text-sm font-sans p-3 box-border"
+            className="absolute border border-emerald-300 rounded-lg shadow-lg resize-none outline-none z-50 text-neutral-900 text-sm font-sans p-3 box-border"
             style={{
+              backgroundColor: "#C9E4DE",
               left: editingItem.x * stageScale + stagePos.x + STICKY_PADDING * stageScale,
               top: editingItem.y * stageScale + stagePos.y + STICKY_PADDING * stageScale,
-              width: ((editingItem.width ?? STICKY_WIDTH) - STICKY_PADDING * 2) * stageScale,
-              height: ((editingItem.height ?? STICKY_HEIGHT) - STICKY_PADDING * 2) * stageScale,
+              width: ((editingItem.width ?? STICKY_SIZE) - STICKY_PADDING * 2) * stageScale,
+              height: ((editingItem.height ?? STICKY_SIZE) - STICKY_PADDING * 2) * stageScale,
               fontSize: Math.max(12, 14 * stageScale),
             }}
             value={editingValue}
