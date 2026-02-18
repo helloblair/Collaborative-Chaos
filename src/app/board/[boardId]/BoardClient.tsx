@@ -8,9 +8,13 @@ import { onDisconnect, onValue, ref, serverTimestamp as rtdbServerTimestamp, set
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import { BoardCanvas } from "./BoardCanvas";
 
 const STICKY_WIDTH = 192;
 const STICKY_HEIGHT = 96;
+const RECT_WIDTH = 200;
+const RECT_HEIGHT = 120;
+const RECT_FILL = "#60a5fa";
 
 type Presence = {
   name: string;
@@ -38,9 +42,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastBoardClick, setLastBoardClick] = useState<{ x: number; y: number } | null>(null);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const boardRef = useRef<HTMLElement | null>(null);
   const localSessionId = useMemo(() => nanoid(), []);
+
+  useEffect(() => {
+    const measure = () =>
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
 
   // Drag state
   const [dragState, setDragState] = useState<{
@@ -81,12 +95,16 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       const items: Record<string, BoardItem> = {};
       snapshot.docs.forEach((d) => {
         const data = d.data();
+        const type = data.type === "rect" ? "rect" : "sticky";
         items[d.id] = {
           id: d.id,
-          type: "sticky",
+          type,
           x: data.x ?? 0,
           y: data.y ?? 0,
           text: data.text ?? "",
+          width: data.width,
+          height: data.height,
+          fill: data.fill,
           createdBy: data.createdBy ?? "",
           updatedAt: data.updatedAt,
         };
@@ -106,6 +124,33 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     },
     [dragState]
   );
+
+  // Rectangle creation: spawn at viewport center in world coords (default transform)
+  const handleAddRect = useCallback(async () => {
+    if (!uid || typeof uid !== "string") return;
+    setCreateError(null);
+    setIsCreating(true);
+    const spawnX = Math.round(viewportSize.width / 2 - RECT_WIDTH / 2);
+    const spawnY = Math.round(viewportSize.height / 2 - RECT_HEIGHT / 2);
+    try {
+      const itemsRef = collection(db, "boards", boardId, "items");
+      await addDoc(itemsRef, {
+        type: "rect",
+        x: spawnX,
+        y: spawnY,
+        width: RECT_WIDTH,
+        height: RECT_HEIGHT,
+        fill: RECT_FILL,
+        createdBy: uid,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create rectangle";
+      setCreateError(msg);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [boardId, uid, viewportSize.width, viewportSize.height]);
 
   // B) Reliable sticky creation with try/catch and feedback
   const handleAddSticky = useCallback(async () => {
@@ -158,7 +203,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
   const startEditing = useCallback((item: BoardItem) => {
     setEditingId(item.id);
-    setEditingText(item.text);
+    setEditingText(item.text ?? "");
   }, []);
 
   const persistStickyText = useCallback(
@@ -190,6 +235,38 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   );
 
   const draggingItemId = dragState?.itemId ?? null;
+
+  const handleCanvasMoveEnd = useCallback(
+    async (id: string, x: number, y: number) => {
+      try {
+        const itemsRef = collection(db, "boards", boardId, "items");
+        const itemRef = doc(itemsRef, id);
+        await updateDoc(itemRef, {
+          x: Math.round(x),
+          y: Math.round(y),
+          updatedAt: serverTimestamp(),
+        });
+      } catch {
+        // Revert will happen via Firestore sync
+      }
+    },
+    [boardId]
+  );
+
+  const handleTextCommit = useCallback(
+    async (id: string, nextText: string) => {
+      try {
+        const itemsRef = collection(db, "boards", boardId, "items");
+        const itemRef = doc(itemsRef, id);
+        await updateDoc(itemRef, { text: nextText, updatedAt: serverTimestamp() });
+      } catch {
+        // Revert will happen via Firestore sync
+      }
+    },
+    [boardId]
+  );
+
+  const itemsArray = useMemo(() => Object.values(boardItems), [boardItems]);
 
   // D) Drag handlers: mousedown → mousemove → mouseup (persist on drop)
   const handleStickyMouseDown = useCallback(
@@ -333,6 +410,17 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       className="h-screen w-screen relative overflow-hidden bg-neutral-950 text-white"
       onClick={handleBoardClick}
     >
+      {viewportSize.width > 0 && viewportSize.height > 0 && (
+        <BoardCanvas
+          width={viewportSize.width}
+          height={viewportSize.height}
+          items={itemsArray}
+          selectedId={selectedId}
+          onSelect={setSelectedId}
+          onMoveEnd={handleCanvasMoveEnd}
+          onTextCommit={handleTextCommit}
+        />
+      )}
       {/* E) HUD: pointer-events-none on container, pointer-events-auto on interactive elements */}
       {uid === undefined && (
         <div className="absolute top-24 left-3 z-40 pointer-events-none">
@@ -369,7 +457,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       )}
 
       {uid && (
-        <div className="fixed bottom-6 right-6 z-30 pointer-events-none">
+        <div className="fixed bottom-6 right-6 z-30 pointer-events-none flex flex-col sm:flex-row gap-2 items-end">
           <button
             type="button"
             onClick={handleAddSticky}
@@ -379,11 +467,20 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           >
             {isCreating ? "Creating…" : "Add Sticky"}
           </button>
+          <button
+            type="button"
+            onClick={handleAddRect}
+            disabled={isCreating}
+            className="pointer-events-auto px-4 py-2 rounded-lg shadow-lg bg-blue-500 hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium text-sm transition-colors"
+            aria-label="Add rectangle"
+          >
+            {isCreating ? "Creating…" : "Add Rectangle"}
+          </button>
         </div>
       )}
 
-      {/* A) Only show stickies when authenticated */}
-      {uid && sortedItems.map((item) => {
+      {/* A) Only show stickies when authenticated - DOM stickies temporarily hidden (rendered via Konva) */}
+      {false && uid && sortedItems.map((item) => {
         const display = getDisplayItem(item);
         const isActive = activeItemId === item.id || (dragState?.itemId === item.id);
         return (
