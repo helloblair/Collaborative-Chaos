@@ -2,6 +2,7 @@
   "rules": {
     "presence": {
       "$boardId": {
+        ".read": "auth != null",
         "$sessionId": {
           ".read": "auth != null",
           ".write": "auth != null"

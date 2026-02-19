@@ -3,7 +3,7 @@
 import { auth, db, rtdb } from "@/lib/firebase";
 import type { BoardItem } from "@/types/board";
 import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { onDisconnect, onValue, ref, serverTimestamp as rtdbServerTimestamp, set, update } from "firebase/database";
 import Link from "next/link";
@@ -46,6 +46,8 @@ function pickColor(seed: string) {
 
 export default function BoardClient({ boardId }: { boardId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const showDebug = searchParams.get("debug") === "1";
   const [uid, setUid] = useState<string | null | undefined>(undefined);
   const [presenceMap, setPresenceMap] = useState<Record<string, Presence>>({});
   const [boardItems, setBoardItems] = useState<Record<string, BoardItem>>({});
@@ -57,6 +59,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lastBoardClick, setLastBoardClick] = useState<{ x: number; y: number } | null>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [rtdbError, setRtdbError] = useState<string | null>(null);
   const boardRef = useRef<HTMLElement | null>(null);
   const localSessionId = useMemo(() => nanoid(), []);
 
@@ -374,11 +377,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   }, [boardId, draggingItemId]);
 
   useEffect(() => {
+    setRtdbError(null);
     const pRef = ref(rtdb, `presence/${boardId}`);
-    return onValue(pRef, (snap) => {
-      const val = snap.val() as Record<string, Presence> | null;
-      setPresenceMap(val ?? {});
-    });
+    return onValue(
+      pRef,
+      (snap) => {
+        const val = snap.val() as Record<string, Presence> | null;
+        setPresenceMap(val ?? {});
+      },
+      (error) => {
+        console.error("RTDB onValue error", error);
+        setRtdbError(error.message);
+      }
+    );
   }, [boardId]);
 
   useEffect(() => {
@@ -407,29 +418,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     return () => clearInterval(interval);
   }, [uid, myPresencePath]);
 
-  const lastSentRef = useRef(0);
-
-  useEffect(() => {
-    if (!uid || !myPresencePath) return;
-
-    const myRef = ref(rtdb, myPresencePath);
-
-    const onMove = (e: MouseEvent) => {
-      const now = performance.now();
-      if (now - lastSentRef.current < 40) return;
-      lastSentRef.current = now;
-
+  const handleCursorMove = useCallback(
+    (worldX: number, worldY: number) => {
+      if (!uid || !myPresencePath) return;
+      const myRef = ref(rtdb, myPresencePath);
       update(myRef, {
-        cursorX: e.clientX,
-        cursorY: e.clientY,
+        cursorX: worldX,
+        cursorY: worldY,
         lastActive: rtdbServerTimestamp(),
         isOnline: true,
       });
-    };
-
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [uid, myPresencePath]);
+    },
+    [uid, myPresencePath]
+  );
 
   // Delete selected item via keyboard
   useEffect(() => {
@@ -526,11 +527,21 @@ export default function BoardClient({ boardId }: { boardId: string }) {
               </>
             )}
 
-            {presenceCount > 0 && (
-              <p className="text-xs text-gray-400 px-1 tabular-nums">
-                {presenceCount === 1 ? "1 online" : `${presenceCount} online`}
-              </p>
-            )}
+            <div className="px-1">
+              <p className="text-xs font-medium text-gray-500 mb-1">Online</p>
+              <ul className="text-xs text-gray-600 space-y-0.5">
+                {Object.entries(presenceMap)
+                  .filter(([key, p]) => p?.isOnline && !(uid && key.startsWith(`${uid}-`)))
+                  .map(([key, p]) => (
+                    <li key={key} className="truncate" title={p.name}>
+                      {p.name || "Anonymous"}
+                    </li>
+                  ))}
+                {presenceCount === 0 && (
+                  <li className="text-gray-400">No one else online</li>
+                )}
+              </ul>
+            </div>
           </>
         )}
 
@@ -558,6 +569,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             onSelect={setSelectedId}
             onMoveEnd={handleCanvasMoveEnd}
             onTextCommit={handleTextCommit}
+            presenceMap={presenceMap}
+            uid={uid}
+            onCursorMove={handleCursorMove}
           />
         )}
       </div>
@@ -593,6 +607,20 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         <div className="absolute top-4 left-52 z-40 pointer-events-none">
           <div className="text-sm bg-red-50 text-red-800 rounded-lg px-3 py-2 max-w-xs border border-red-200">
             {createError}
+          </div>
+        </div>
+      )}
+
+      {showDebug && (
+        <div className="fixed bottom-4 right-4 z-50 bg-gray-900 text-gray-100 text-xs font-mono rounded-lg p-3 shadow-lg max-w-xs overflow-auto max-h-48">
+          <div className="font-semibold text-amber-400 mb-2">RTDB debug</div>
+          <div className="space-y-1">
+            <div>boardId: {boardId}</div>
+            <div>uid: {uid ?? "(null)"}</div>
+            <div>myPresencePath: {myPresencePath ?? "(null)"}</div>
+            <div>presenceMap.keys.length: {Object.keys(presenceMap).length}</div>
+            <div>first 3 keys: {Object.keys(presenceMap).slice(0, 3).join(", ") || "(none)"}</div>
+            {rtdbError && <div className="text-red-400">rtdbError: {rtdbError}</div>}
           </div>
         </div>
       )}
@@ -641,28 +669,6 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         );
       })}
 
-      {Object.entries(presenceMap).map(([key, p]) => {
-        if (!p?.isOnline) return null;
-        if (uid && key.startsWith(`${uid}-`)) return null;
-        return (
-          <div
-            key={key}
-            className="absolute z-20 pointer-events-none"
-            style={{ left: p.cursorX + 10, top: p.cursorY + 10 }}
-          >
-            <div
-              className="text-[11px] px-2 py-1 rounded bg-gray-800/90 border border-gray-600/50"
-              style={{ color: p.color }}
-            >
-              {p.name}
-            </div>
-            <div
-              className="w-2 h-2 rounded-full"
-              style={{ background: p.color }}
-            />
-          </div>
-        );
-      })}
     </main>
   );
 }
