@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Any authenticated user can read and write all board items.
+    // This is intentional for a collaborative whiteboard — User B must be
+    // able to move/delete items created by User A.
+    match /boards/{boardId}/items/{itemId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

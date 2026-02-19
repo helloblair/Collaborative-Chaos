@@ -2,8 +2,9 @@
 
 import { auth, db, rtdb } from "@/lib/firebase";
 import type { BoardItem } from "@/types/board";
-import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { addDoc, collection, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+import { useRouter } from "next/navigation";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
 import { onDisconnect, onValue, ref, serverTimestamp as rtdbServerTimestamp, set, update } from "firebase/database";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,7 +15,17 @@ const STICKY_SIZE = 160;
 const RECT_WIDTH = 200;
 const RECT_HEIGHT = 120;
 const RECT_FILL = "#C6DEF1";
-const TOOLBAR_HEIGHT = 56;
+const SIDEBAR_WIDTH = 192; // matches Tailwind w-48
+
+const FILL_COLORS = [
+  "#C9E4DE", // mint (sticky default)
+  "#C6DEF1", // sky blue (rect default)
+  "#FDEBD0", // peach
+  "#D5E8D4", // sage
+  "#E1D5E7", // lavender
+  "#FFF2CC", // yellow
+  "#FFD7D7", // blush
+];
 
 type Presence = {
   name: string;
@@ -34,6 +45,7 @@ function pickColor(seed: string) {
 }
 
 export default function BoardClient({ boardId }: { boardId: string }) {
+  const router = useRouter();
   const [uid, setUid] = useState<string | null | undefined>(undefined);
   const [presenceMap, setPresenceMap] = useState<Record<string, Presence>>({});
   const [boardItems, setBoardItems] = useState<Record<string, BoardItem>>({});
@@ -253,6 +265,32 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     [boardId]
   );
 
+  const handleDeleteItem = useCallback(async () => {
+    if (!selectedId) return;
+    try {
+      const itemRef = doc(collection(db, "boards", boardId, "items"), selectedId);
+      await deleteDoc(itemRef);
+      setSelectedId(null);
+    } catch {
+      // Firestore sync will reconcile
+    }
+  }, [boardId, selectedId]);
+
+  const handleColorChange = useCallback(async (color: string) => {
+    if (!selectedId) return;
+    try {
+      const itemRef = doc(collection(db, "boards", boardId, "items"), selectedId);
+      await updateDoc(itemRef, { fill: color, updatedAt: serverTimestamp() });
+    } catch {
+      // Firestore sync will reconcile
+    }
+  }, [boardId, selectedId]);
+
+  const handleSignOut = useCallback(async () => {
+    await signOut(auth);
+    router.push("/");
+  }, [router]);
+
   const handleTextCommit = useCallback(
     async (id: string, nextText: string) => {
       try {
@@ -393,6 +431,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     return () => window.removeEventListener("mousemove", onMove);
   }, [uid, myPresencePath]);
 
+  // Delete selected item via keyboard
+  useEffect(() => {
+    if (!selectedId) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.tagName === "TEXTAREA" || active?.tagName === "INPUT") return;
+      handleDeleteItem();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedId, handleDeleteItem]);
+
   // E) Sort items so active/dragged renders on top; stable sort by activeItemId
   const sortedItems = useMemo(() => {
     const items = Object.values(boardItems);
@@ -410,7 +461,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       ).length,
     [presenceMap, uid]
   );
-  const canvasHeight = Math.max(0, viewportSize.height - TOOLBAR_HEIGHT);
+  const canvasWidth = Math.max(0, viewportSize.width - SIDEBAR_WIDTH);
+  const selectedItem = selectedId ? boardItems[selectedId] : null;
+  const selectedItemFill = selectedItem?.fill ?? (selectedItem?.type === "rect" ? "#C6DEF1" : "#C9E4DE");
 
   return (
     <main
@@ -419,45 +472,87 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       className="h-screen w-screen relative overflow-hidden bg-gray-50 text-gray-900"
       onClick={handleBoardClick}
     >
-      {/* Top toolbar */}
-      <header className="fixed top-0 left-0 right-0 z-40 h-14 bg-white shadow-sm px-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
+      {/* Left sidebar */}
+      <aside className="fixed left-0 top-0 h-screen w-48 bg-white border-r border-gray-200 z-40 flex flex-col p-3 gap-2">
+        {uid && (
+          <>
+            <button
+              type="button"
+              onClick={handleAddSticky}
+              disabled={isCreating}
+              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
+              aria-label="Add sticky note"
+            >
+              {isCreating ? "Creating…" : "Add Sticky"}
+            </button>
+            <button
+              type="button"
+              onClick={handleAddRect}
+              disabled={isCreating}
+              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
+              aria-label="Add rectangle"
+            >
+              {isCreating ? "Creating…" : "Add Rectangle"}
+            </button>
+
+            {selectedId && (
+              <>
+                <hr className="border-gray-200" />
+                <label className="text-xs text-gray-500 font-medium px-1">Color</label>
+                <div className="flex flex-wrap gap-1.5 px-1">
+                  {FILL_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => handleColorChange(color)}
+                      className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
+                      style={{
+                        background: color,
+                        borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
+                        boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
+                      }}
+                      aria-label={`Set color ${color}`}
+                    />
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleDeleteItem}
+                  className="w-full rounded-lg px-3 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 font-medium text-sm transition-colors text-left"
+                  aria-label="Delete selected item"
+                >
+                  Delete
+                </button>
+              </>
+            )}
+
+            {presenceCount > 0 && (
+              <p className="text-xs text-gray-400 px-1 tabular-nums">
+                {presenceCount === 1 ? "1 online" : `${presenceCount} online`}
+              </p>
+            )}
+          </>
+        )}
+
+        <div className="mt-auto">
           {uid && (
-            <>
-              <button
-                type="button"
-                onClick={handleAddSticky}
-                disabled={isCreating}
-                className="rounded-lg px-4 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors"
-                aria-label="Add sticky note"
-              >
-                {isCreating ? "Creating…" : "Add Sticky"}
-              </button>
-              <button
-                type="button"
-                onClick={handleAddRect}
-                disabled={isCreating}
-                className="rounded-lg px-4 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors"
-                aria-label="Add rectangle"
-              >
-                {isCreating ? "Creating…" : "Add Rectangle"}
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-500 font-medium text-sm transition-colors text-left"
+            >
+              Sign Out
+            </button>
           )}
         </div>
-        {presenceCount > 0 && (
-          <span className="text-gray-500 text-sm tabular-nums">
-            {presenceCount === 1 ? "1 person online" : `${presenceCount} people online`}
-          </span>
-        )}
-      </header>
+      </aside>
 
-      {/* Canvas fills viewport below toolbar */}
-      <div className="absolute top-14 left-0 right-0 bottom-0 z-0">
-        {viewportSize.width > 0 && canvasHeight > 0 && (
+      {/* Canvas fills viewport to the right of the sidebar */}
+      <div className="absolute top-0 left-48 right-0 bottom-0 z-0">
+        {canvasWidth > 0 && viewportSize.height > 0 && (
           <BoardCanvas
-            width={viewportSize.width}
-            height={canvasHeight}
+            width={canvasWidth}
+            height={viewportSize.height}
             items={itemsArray}
             selectedId={selectedId}
             onSelect={setSelectedId}
@@ -468,14 +563,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       </div>
 
       {uid === undefined && (
-        <div className="absolute top-24 left-3 z-40 pointer-events-none">
+        <div className="absolute top-4 left-52 z-40 pointer-events-none">
           <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 border border-gray-200 shadow-sm">
             Loading auth...
           </div>
         </div>
       )}
       {uid === null && (
-        <div className="absolute top-24 left-3 z-40 pointer-events-none">
+        <div className="absolute top-4 left-52 z-40 pointer-events-none">
           <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 space-y-2 border border-gray-200 shadow-sm max-w-xs">
             <div>Not signed in on this route.</div>
             <div className="pointer-events-auto">
@@ -495,14 +590,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       )}
 
       {createError && uid && (
-        <div className="absolute top-24 left-3 z-40 pointer-events-none">
+        <div className="absolute top-4 left-52 z-40 pointer-events-none">
           <div className="text-sm bg-red-50 text-red-800 rounded-lg px-3 py-2 max-w-xs border border-red-200">
             {createError}
           </div>
         </div>
       )}
 
-      {/* A) Only show stickies when authenticated - DOM stickies temporarily hidden (rendered via Konva) */}
+      {/* DOM stickies hidden — rendered via Konva */}
       {false && uid && sortedItems.map((item) => {
         const display = getDisplayItem(item);
         const isActive = activeItemId === item.id || (dragState?.itemId === item.id);
@@ -549,7 +644,6 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       {Object.entries(presenceMap).map(([key, p]) => {
         if (!p?.isOnline) return null;
         if (uid && key.startsWith(`${uid}-`)) return null;
-
         return (
           <div
             key={key}

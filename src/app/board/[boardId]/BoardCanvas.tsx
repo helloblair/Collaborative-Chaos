@@ -43,20 +43,26 @@ export function BoardCanvas({
   const isPanningRef = useRef(false);
   const panStartRef = useRef<{ x: number; y: number } | null>(null);
   const stageStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Throttle live drag broadcasts to ~50ms so other clients see smooth movement
+  const moveThrottleRef = useRef(0);
 
   const handleWheel = useCallback(
-    (e: { evt: WheelEvent; target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null } }) => {
+    (e: { evt: WheelEvent }) => {
       e.evt.preventDefault();
-      const stage = e.target.getStage();
+      const stage = stageRef.current;
       if (!stage) return;
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
+      // Read live values from the Konva node so rapid scroll events don't use stale closure state
+      const oldScale = stage.scaleX();
+      const oldX = stage.x();
+      const oldY = stage.y();
       const direction = e.evt.deltaY > 0 ? -1 : 1;
-      const newScale = stageScale * Math.pow(SCALE_BY, direction);
+      const newScale = oldScale * Math.pow(SCALE_BY, direction);
       const clampedScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
       const mousePointTo = {
-        x: (pointer.x - stagePos.x) / stageScale,
-        y: (pointer.y - stagePos.y) / stageScale,
+        x: (pointer.x - oldX) / oldScale,
+        y: (pointer.y - oldY) / oldScale,
       };
       setStageScale(clampedScale);
       setStagePos({
@@ -64,43 +70,43 @@ export function BoardCanvas({
         y: pointer.y - mousePointTo.y * clampedScale,
       });
     },
-    [stageScale, stagePos]
+    [] // stageRef is stable — no deps needed
   );
 
   const handleStageMouseDown = useCallback(
     (e: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null; name: () => string } }) => {
-      const stage = e.target.getStage();
-      if (!stage) return;
-      const clickedStage = (e.target as unknown) === stage;
+      const clickedStage = (e.target as unknown) === stageRef.current;
       const clickedBg = e.target.name() === "bg";
       if (clickedStage || clickedBg) {
+        const stage = stageRef.current;
+        if (!stage) return;
         const pos = stage.getPointerPosition();
         if (pos) {
           isPanningRef.current = true;
           panStartRef.current = { x: pos.x, y: pos.y };
-          stageStartRef.current = { ...stagePos };
+          stageStartRef.current = { x: stage.x(), y: stage.y() };
         }
       }
     },
-    [stagePos]
+    [] // stageRef is stable — no deps needed
   );
 
   const handleStageTouchStart = useCallback(
     (e: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null; name: () => string } }) => {
-      const stage = e.target.getStage();
-      if (!stage) return;
-      const clickedStage = (e.target as unknown) === stage;
+      const clickedStage = (e.target as unknown) === stageRef.current;
       const clickedBg = e.target.name() === "bg";
       if (clickedStage || clickedBg) {
+        const stage = stageRef.current;
+        if (!stage) return;
         const pos = stage.getPointerPosition();
         if (pos) {
           isPanningRef.current = true;
           panStartRef.current = { x: pos.x, y: pos.y };
-          stageStartRef.current = { ...stagePos };
+          stageStartRef.current = { x: stage.x(), y: stage.y() };
         }
       }
     },
-    [stagePos]
+    [] // stageRef is stable — no deps needed
   );
 
   const handleStageMouseMove = useCallback(
@@ -233,6 +239,13 @@ export function BoardCanvas({
                   draggable
                   onDragStart={() => onSelect(item.id)}
                   onClick={() => onSelect(item.id)}
+                  onDragMove={(e) => {
+                    const now = performance.now();
+                    if (now - moveThrottleRef.current < 50) return;
+                    moveThrottleRef.current = now;
+                    const node = e.target;
+                    onMoveEnd(item.id, node.x(), node.y());
+                  }}
                   onDragEnd={(e) => {
                     const node = e.target;
                     onMoveEnd(item.id, node.x(), node.y());
@@ -265,6 +278,13 @@ export function BoardCanvas({
                 onDragStart={() => onSelect(item.id)}
                 onClick={() => onSelect(item.id)}
                 onDblClick={() => handleStickyDblClick(item)}
+                onDragMove={(e) => {
+                  const now = performance.now();
+                  if (now - moveThrottleRef.current < 50) return;
+                  moveThrottleRef.current = now;
+                  const node = e.target;
+                  onMoveEnd(item.id, node.x(), node.y());
+                }}
                 onDragEnd={(e) => {
                   const node = e.target;
                   onMoveEnd(item.id, node.x(), node.y());
