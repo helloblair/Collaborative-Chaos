@@ -2,7 +2,7 @@
 
 import type { BoardItem } from "@/types/board";
 import type Konva from "konva";
-import { Group, Layer, Line, Rect, Stage, Text } from "react-konva";
+import { Circle, Group, Layer, Line, Rect, Stage, Text } from "react-konva";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const STICKY_SIZE = 160;
@@ -13,6 +13,15 @@ const MAX_SCALE = 2.5;
 /** World extent for background and grid so they persist when panning/zooming (layer coords) */
 const WORLD_HALF = 20000;
 const GRID_STEP = 40;
+const CURSOR_THROTTLE_MS = 40;
+
+export type PresenceEntry = {
+  name: string;
+  color: string;
+  cursorX: number;
+  cursorY: number;
+  isOnline: boolean;
+};
 
 export type BoardCanvasProps = {
   width: number;
@@ -22,6 +31,9 @@ export type BoardCanvasProps = {
   onSelect: (id: string) => void;
   onMoveEnd: (id: string, x: number, y: number) => void;
   onTextCommit: (id: string, nextText: string) => void;
+  presenceMap?: Record<string, PresenceEntry>;
+  uid?: string | null;
+  onCursorMove?: (worldX: number, worldY: number) => void;
 };
 
 export function BoardCanvas({
@@ -32,6 +44,9 @@ export function BoardCanvas({
   onSelect,
   onMoveEnd,
   onTextCommit,
+  presenceMap = {},
+  uid = null,
+  onCursorMove,
 }: BoardCanvasProps) {
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
@@ -45,6 +60,7 @@ export function BoardCanvas({
   const stageStartRef = useRef<{ x: number; y: number } | null>(null);
   // Throttle live drag broadcasts to ~50ms so other clients see smooth movement
   const moveThrottleRef = useRef(0);
+  const cursorThrottleRef = useRef(0);
 
   const handleWheel = useCallback(
     (e: { evt: WheelEvent }) => {
@@ -110,11 +126,20 @@ export function BoardCanvas({
   );
 
   const handleStageMouseMove = useCallback(
-    (e: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null } }) => {
-      if (!isPanningRef.current || !panStartRef.current || !stageStartRef.current) return;
+    (e: { target: { getStage: () => Konva.Stage | null } }) => {
       const stage = e.target.getStage();
       if (!stage) return;
       const pointer = stage.getPointerPosition();
+      if (pointer && onCursorMove) {
+        const now = performance.now();
+        if (now - cursorThrottleRef.current >= CURSOR_THROTTLE_MS) {
+          cursorThrottleRef.current = now;
+          const worldX = (pointer.x - stage.x()) / stage.scaleX();
+          const worldY = (pointer.y - stage.y()) / stage.scaleY();
+          onCursorMove(worldX, worldY);
+        }
+      }
+      if (!isPanningRef.current || !panStartRef.current || !stageStartRef.current) return;
       if (!pointer) return;
       const dx = pointer.x - panStartRef.current.x;
       const dy = pointer.y - panStartRef.current.y;
@@ -123,11 +148,11 @@ export function BoardCanvas({
         y: stageStartRef.current.y + dy,
       });
     },
-    []
+    [onCursorMove]
   );
 
   const handleStageTouchMove = useCallback(
-    (e: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null } }) => {
+    (e: { target: { getStage: () => Konva.Stage | null } }) => {
       if (!isPanningRef.current || !panStartRef.current || !stageStartRef.current) return;
       const stage = e.target.getStage();
       if (!stage) return;
@@ -173,6 +198,16 @@ export function BoardCanvas({
   }, []);
 
   const editingItem = editingId ? items.find((i) => i.id === editingId) : null;
+
+  // Other users' cursors to render (world coords, exclude self)
+  const otherPresences = useMemo(() => {
+    return Object.entries(presenceMap).filter(
+      ([key, p]) =>
+        p != null &&
+        p.isOnline === true &&
+        !(uid && key.startsWith(`${uid}-`))
+    ) as [string, PresenceEntry][];
+  }, [presenceMap, uid]);
 
   // Subtle grid lines every 40px across the full world so they persist when panning/zooming
   const gridLines = useMemo(() => {
@@ -316,6 +351,21 @@ export function BoardCanvas({
               </Group>
             );
           })}
+          {/* Other users' cursors (world space) */}
+          {otherPresences.map(([key, p]) => (
+            <Group key={key} x={p.cursorX} y={p.cursorY} listening={false}>
+              <Circle radius={5} fill={p.color} stroke="#fff" strokeWidth={1} />
+              <Text
+                x={10}
+                y={-6}
+                text={p.name || "Anonymous"}
+                fontSize={12}
+                fontFamily="sans-serif"
+                fill={p.color}
+                listening={false}
+              />
+            </Group>
+          ))}
         </Layer>
       </Stage>
 
