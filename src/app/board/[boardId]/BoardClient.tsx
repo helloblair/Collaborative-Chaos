@@ -1,11 +1,11 @@
 "use client";
 
-import { auth, db, rtdb } from "@/lib/firebase";
+import { auth, db, FIREBASE_DATABASE_URL, FIREBASE_PROJECT_ID, rtdb } from "@/lib/firebase";
 import type { BoardItem } from "@/types/board";
 import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
-import { onDisconnect, onValue, ref, serverTimestamp as rtdbServerTimestamp, set, update } from "firebase/database";
+import { onDisconnect, onValue, ref, remove, serverTimestamp as rtdbServerTimestamp, set, update } from "firebase/database";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
@@ -27,6 +27,8 @@ const FILL_COLORS = [
   "#FFD7D7", // blush
 ];
 
+const STALE_PRESENCE_MS = 20000;
+
 type Presence = {
   name: string;
   color: string;
@@ -35,6 +37,13 @@ type Presence = {
   isOnline: boolean;
   lastActive: unknown;
 };
+
+function isPresenceActive(p: Presence | null | undefined): boolean {
+  if (!p || p.isOnline !== true) return false;
+  const t = p.lastActive;
+  if (typeof t !== "number" || Number.isNaN(t)) return false;
+  return Date.now() - t < STALE_PRESENCE_MS;
+}
 
 const COLORS = ["#e11d48", "#2563eb", "#16a34a", "#f59e0b", "#9333ea"];
 
@@ -61,6 +70,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [rtdbError, setRtdbError] = useState<string | null>(null);
   const boardRef = useRef<HTMLElement | null>(null);
+  const retryRef = useRef(false);
   const localSessionId = useMemo(() => nanoid(), []);
 
   useEffect(() => {
@@ -376,21 +386,44 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     };
   }, [boardId, draggingItemId]);
 
+  // Presence subscription: only when authenticated (same gating as Firestore)
   useEffect(() => {
+    if (typeof uid !== "string" || uid === "") {
+      setPresenceMap({});
+      setRtdbError(null);
+      return;
+    }
     setRtdbError(null);
-    const pRef = ref(rtdb, `presence/${boardId}`);
-    return onValue(
-      pRef,
-      (snap) => {
-        const val = snap.val() as Record<string, Presence> | null;
-        setPresenceMap(val ?? {});
-      },
-      (error) => {
-        console.error("RTDB onValue error", error);
-        setRtdbError(error.message);
-      }
-    );
-  }, [boardId]);
+    retryRef.current = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let unsub: (() => void) | null = null;
+
+    const subscribe = () => {
+      const pRef = ref(rtdb, `presence/${boardId}`);
+      unsub = onValue(
+        pRef,
+        (snap) => {
+          const val = snap.val() as Record<string, Presence> | null;
+          setPresenceMap(val ?? {});
+        },
+        (error) => {
+          console.error("RTDB onValue error", error);
+          setRtdbError(error.message);
+          if (error.message.includes("permission_denied") && !retryRef.current) {
+            retryRef.current = true;
+            timeoutId = setTimeout(subscribe, 500);
+          }
+        }
+      );
+    };
+
+    subscribe();
+
+    return () => {
+      if (unsub) unsub();
+      if (timeoutId != null) clearTimeout(timeoutId);
+    };
+  }, [boardId, uid]);
 
   useEffect(() => {
     if (!uid || !myPresencePath) return;
@@ -409,13 +442,20 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
     set(myRef, data);
 
-    onDisconnect(myRef).update({ isOnline: false, lastActive: rtdbServerTimestamp() });
+    onDisconnect(myRef).remove();
 
     const interval = setInterval(() => {
       update(myRef, { lastActive: rtdbServerTimestamp(), isOnline: true });
     }, 8000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      try {
+        remove(myRef);
+      } catch {
+        // best effort cleanup on unmount
+      }
+    };
   }, [uid, myPresencePath]);
 
   const handleCursorMove = useCallback(
@@ -455,13 +495,38 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     });
   }, [boardItems, activeItemId]);
 
-  const presenceCount = useMemo(
-    () =>
-      Object.entries(presenceMap).filter(
-        ([key, p]) => p?.isOnline && !(uid && key.startsWith(`${uid}-`))
-      ).length,
-    [presenceMap, uid]
-  );
+  // Unique online users by uid (one entry per user; name/color from most recently active session)
+  const uniqueOnlineUsers = useMemo(() => {
+    if (!presenceMap || typeof uid !== "string") return [];
+    const byUid = new Map<
+      string,
+      Array<{ key: string; p: Presence }>
+    >();
+    for (const [key, p] of Object.entries(presenceMap)) {
+      if (!isPresenceActive(p)) continue;
+      const entryUid = key.split("-")[0];
+      if (entryUid === uid) continue;
+      const list = byUid.get(entryUid) ?? [];
+      list.push({ key, p });
+      byUid.set(entryUid, list);
+    }
+    const result: Array<{ uid: string; name: string; color: string }> = [];
+    const lastActiveTime = (x: unknown): number =>
+      typeof x === "number" && !Number.isNaN(x) ? x : 0;
+    byUid.forEach((sessions, entryUid) => {
+      const sorted = [...sessions].sort(
+        (a, b) =>
+          lastActiveTime(b.p.lastActive) - lastActiveTime(a.p.lastActive)
+      );
+      const chosen = sorted[0];
+      result.push({
+        uid: entryUid,
+        name: chosen.p.name || "Anonymous",
+        color: chosen.p.color,
+      });
+    });
+    return result;
+  }, [presenceMap, uid]);
   const canvasWidth = Math.max(0, viewportSize.width - SIDEBAR_WIDTH);
   const selectedItem = selectedId ? boardItems[selectedId] : null;
   const selectedItemFill = selectedItem?.fill ?? (selectedItem?.type === "rect" ? "#C6DEF1" : "#C9E4DE");
@@ -528,16 +593,16 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             )}
 
             <div className="px-1">
-              <p className="text-xs font-medium text-gray-500 mb-1">Online</p>
+              <p className="text-xs font-medium text-gray-500 mb-1">
+                Online ({uniqueOnlineUsers.length})
+              </p>
               <ul className="text-xs text-gray-600 space-y-0.5">
-                {Object.entries(presenceMap)
-                  .filter(([key, p]) => p?.isOnline && !(uid && key.startsWith(`${uid}-`)))
-                  .map(([key, p]) => (
-                    <li key={key} className="truncate" title={p.name}>
-                      {p.name || "Anonymous"}
-                    </li>
-                  ))}
-                {presenceCount === 0 && (
+                {uniqueOnlineUsers.map((u) => (
+                  <li key={u.uid} className="truncate" title={u.name}>
+                    {u.name}
+                  </li>
+                ))}
+                {uniqueOnlineUsers.length === 0 && (
                   <li className="text-gray-400">No one else online</li>
                 )}
               </ul>
@@ -615,6 +680,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         <div className="fixed bottom-4 right-4 z-50 bg-gray-900 text-gray-100 text-xs font-mono rounded-lg p-3 shadow-lg max-w-xs overflow-auto max-h-48">
           <div className="font-semibold text-amber-400 mb-2">RTDB debug</div>
           <div className="space-y-1">
+            <div>FIREBASE_PROJECT_ID: {FIREBASE_PROJECT_ID ?? "(undefined)"}</div>
+            <div>FIREBASE_DATABASE_URL: {FIREBASE_DATABASE_URL ?? "(undefined)"}</div>
             <div>boardId: {boardId}</div>
             <div>uid: {uid ?? "(null)"}</div>
             <div>myPresencePath: {myPresencePath ?? "(null)"}</div>
