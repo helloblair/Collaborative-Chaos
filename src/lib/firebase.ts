@@ -13,8 +13,12 @@ const firebaseConfig = {
   databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
 };
 
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId as string | undefined;
+export const FIREBASE_DATABASE_URL = firebaseConfig.databaseURL as string | undefined;
+
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(console.error);
 export const rtdb = getDatabase(app);
 export const db = getFirestore(app);
+

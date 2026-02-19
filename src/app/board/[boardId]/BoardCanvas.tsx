@@ -14,6 +14,7 @@ const MAX_SCALE = 2.5;
 const WORLD_HALF = 20000;
 const GRID_STEP = 40;
 const CURSOR_THROTTLE_MS = 40;
+const STALE_PRESENCE_MS = 20000;
 
 export type PresenceEntry = {
   name: string;
@@ -21,7 +22,15 @@ export type PresenceEntry = {
   cursorX: number;
   cursorY: number;
   isOnline: boolean;
+  lastActive?: unknown;
 };
+
+function isPresenceActive(p: PresenceEntry | null | undefined): boolean {
+  if (!p || p.isOnline !== true) return false;
+  const t = p.lastActive;
+  if (typeof t !== "number" || Number.isNaN(t)) return false;
+  return Date.now() - t < STALE_PRESENCE_MS;
+}
 
 export type BoardCanvasProps = {
   width: number;
@@ -199,12 +208,11 @@ export function BoardCanvas({
 
   const editingItem = editingId ? items.find((i) => i.id === editingId) : null;
 
-  // Other users' cursors to render (world coords, exclude self)
+  // Other users' cursors to render (world coords, exclude self; only recent sessions)
   const otherPresences = useMemo(() => {
     return Object.entries(presenceMap).filter(
       ([key, p]) =>
-        p != null &&
-        p.isOnline === true &&
+        isPresenceActive(p) &&
         !(uid && key.startsWith(`${uid}-`))
     ) as [string, PresenceEntry][];
   }, [presenceMap, uid]);
