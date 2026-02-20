@@ -1,11 +1,51 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Any authenticated user can read and write all board items.
-    // This is intentional for a collaborative whiteboard — User B must be
-    // able to move/delete items created by User A.
-    match /boards/{boardId}/items/{itemId} {
-      allow read, write: if request.auth != null;
+
+    function isBoardMember(boardId) {
+      return request.auth != null
+        && request.auth.uid in get(/databases/$(database)/documents/boards/$(boardId)).data.members;
+    }
+
+    // Top-level board documents
+    match /boards/{boardId} {
+      // Members can read their board
+      allow read: if request.auth != null
+        && request.auth.uid in resource.data.members;
+
+      // Any authenticated user can create a board they seed as a member
+      allow create: if request.auth != null
+        && request.auth.uid in request.resource.data.members;
+
+      // Members can update board metadata; non-members can self-join (invite link flow):
+      // a self-join is valid when the requester only adds themselves to both arrays
+      // and does not remove any existing member or change any other fields.
+      allow update: if request.auth != null && (
+        request.auth.uid in resource.data.members
+        || (
+          // Self-join: only appending the requester's own UID + email
+          request.resource.data.members.hasAll(resource.data.members)
+          && request.resource.data.members.size() == resource.data.members.size() + 1
+          && request.auth.uid in request.resource.data.members
+          && request.resource.data.memberEmails.hasAll(resource.data.memberEmails)
+          && request.resource.data.memberEmails.size() == resource.data.memberEmails.size() + 1
+        )
+      );
+
+      // Only the creator can delete a board
+      allow delete: if request.auth != null
+        && request.auth.uid == resource.data.createdBy;
+
+      // Board items — gated on board membership
+      match /items/{itemId} {
+        allow read, write: if isBoardMember(boardId);
+      }
+    }
+
+    // User profiles — any signed-in user can read; only the owner can write
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }

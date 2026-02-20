@@ -1,7 +1,8 @@
 "use client";
 
 import { auth, db, FIREBASE_DATABASE_URL, FIREBASE_PROJECT_ID, rtdb } from "@/lib/firebase";
-import type { BoardItem } from "@/types/board";
+import { getBoard, joinBoard } from "@/lib/boards";
+import type { Board, BoardItem } from "@/types/board";
 import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
 import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
@@ -57,7 +58,12 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const showDebug = searchParams.get("debug") === "1";
+  const isInviteLink = searchParams.get("invite") === "true";
   const [uid, setUid] = useState<string | null | undefined>(undefined);
+  const [boardAccess, setBoardAccess] = useState<"loading" | "ok" | "not-found" | "forbidden">("loading");
+  const [boardMeta, setBoardMeta] = useState<Board | null>(null);
+  const [joiningBoard, setJoiningBoard] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState(false);
   const [presenceMap, setPresenceMap] = useState<Record<string, Presence>>({});
   const [boardItems, setBoardItems] = useState<Record<string, BoardItem>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -109,9 +115,59 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     return unsub;
   }, []);
 
-  // A) Auth-gated Firestore: only subscribe when uid is non-null string
+  // Board membership check: runs whenever uid or boardId changes
   useEffect(() => {
-    if (typeof uid !== "string" || uid === "") {
+    if (typeof uid !== "string") {
+      setBoardAccess("loading");
+      return;
+    }
+    setBoardAccess("loading");
+    getBoard(boardId)
+      .then((board) => {
+        if (!board) {
+          setBoardAccess("not-found");
+        } else if (!board.members.includes(uid)) {
+          setBoardMeta(null);
+          setBoardAccess("forbidden");
+        } else {
+          setBoardMeta(board);
+          setBoardAccess("ok");
+        }
+      })
+      .catch(() => setBoardAccess("forbidden"));
+  }, [boardId, uid]);
+
+  const handleJoinBoard = useCallback(async () => {
+    if (typeof uid !== "string") return;
+    const user = auth.currentUser;
+    if (!user) return;
+    setJoiningBoard(true);
+    try {
+      await joinBoard(boardId, uid, user.email ?? "");
+      // Re-fetch to confirm membership and load board meta
+      const board = await getBoard(boardId);
+      if (board) {
+        setBoardMeta(board);
+        setBoardAccess("ok");
+      }
+    } catch {
+      // leave as forbidden — user sees error state
+    } finally {
+      setJoiningBoard(false);
+    }
+  }, [boardId, uid]);
+
+  const handleShareLink = useCallback(() => {
+    const url = `${window.location.origin}/board/${boardId}?invite=true`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 2000);
+    });
+  }, [boardId]);
+
+  // A) Auth-gated Firestore: only subscribe when uid is non-null string and access confirmed
+  useEffect(() => {
+    if (boardAccess !== "ok" || typeof uid !== "string" || uid === "") {
       setBoardItems({});
       return;
     }
@@ -137,7 +193,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       setBoardItems(items);
     });
     return unsubscribe;
-  }, [boardId, uid]);
+  }, [boardId, uid, boardAccess]);
 
   // Compute display position: use drag local coords when dragging, else Firestore
   const getDisplayItem = useCallback(
@@ -386,9 +442,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     };
   }, [boardId, draggingItemId]);
 
-  // Presence subscription: only when authenticated (same gating as Firestore)
+  // Presence subscription: only when authenticated and board access confirmed
   useEffect(() => {
-    if (typeof uid !== "string" || uid === "") {
+    if (boardAccess !== "ok" || typeof uid !== "string" || uid === "") {
       setPresenceMap({});
       setRtdbError(null);
       return;
@@ -423,7 +479,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       if (unsub) unsub();
       if (timeoutId != null) clearTimeout(timeoutId);
     };
-  }, [boardId, uid]);
+  }, [boardId, uid, boardAccess]);
 
   useEffect(() => {
     if (!uid || !myPresencePath) return;
@@ -540,7 +596,18 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     >
       {/* Left sidebar */}
       <aside className="fixed left-0 top-0 h-screen w-48 bg-white border-r border-gray-200 z-40 flex flex-col p-3 gap-2">
-        {uid && (
+        <Link
+          href="/"
+          className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 font-medium text-sm transition-colors text-left"
+        >
+          ← My Boards
+        </Link>
+        {boardMeta && (
+          <p className="px-1 text-xs font-semibold text-gray-700 truncate" title={boardMeta.name}>
+            {boardMeta.name}
+          </p>
+        )}
+        {uid && boardAccess === "ok" && (
           <>
             <button
               type="button"
@@ -610,15 +677,24 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           </>
         )}
 
-        <div className="mt-auto">
-          {uid && (
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-500 font-medium text-sm transition-colors text-left"
-            >
-              Sign Out
-            </button>
+        <div className="mt-auto flex flex-col gap-2">
+          {uid && boardAccess === "ok" && (
+            <>
+              <button
+                type="button"
+                onClick={handleShareLink}
+                className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium text-sm transition-colors text-left"
+              >
+                {copyFeedback ? "Link copied!" : "Share…"}
+              </button>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-500 font-medium text-sm transition-colors text-left"
+              >
+                Sign Out
+              </button>
+            </>
           )}
         </div>
       </aside>
@@ -668,7 +744,45 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         </div>
       )}
 
-      {createError && uid && (
+      {typeof uid === "string" && boardAccess === "not-found" && (
+        <div className="absolute top-4 left-52 z-40 pointer-events-none">
+          <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 border border-gray-200 shadow-sm">
+            Board not found.{" "}
+            <Link href="/" className="underline text-blue-600 pointer-events-auto">
+              Go to My Boards
+            </Link>
+          </div>
+        </div>
+      )}
+      {typeof uid === "string" && boardAccess === "forbidden" && (
+        <div className="absolute top-4 left-52 z-40">
+          {isInviteLink ? (
+            <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-4 py-3 border border-gray-200 shadow-sm flex items-center gap-3">
+              <span>You&apos;ve been invited to this board.</span>
+              <button
+                type="button"
+                onClick={handleJoinBoard}
+                disabled={joiningBoard}
+                className="rounded-lg px-3 py-1 bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {joiningBoard ? "Joining…" : "Join Board"}
+              </button>
+              <Link href="/" className="text-xs text-gray-400 hover:text-gray-600 underline">
+                Decline
+              </Link>
+            </div>
+          ) : (
+            <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 border border-gray-200 shadow-sm pointer-events-none">
+              You don&apos;t have access to this board.{" "}
+              <Link href="/" className="underline text-blue-600 pointer-events-auto">
+                Go to My Boards
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+
+      {createError && uid && boardAccess === "ok" && (
         <div className="absolute top-4 left-52 z-40 pointer-events-none">
           <div className="text-sm bg-red-50 text-red-800 rounded-lg px-3 py-2 max-w-xs border border-red-200">
             {createError}
