@@ -22,3 +22,14 @@ export type BoardItem = {
   createdBy: string;
   updatedAt?: unknown;
 };
+
+export type Connector = {
+  id: string;
+  boardId: string;
+  fromId: string;
+  toId: string;
+  style: "line" | "arrow";
+  color: string;
+  createdBy: string;
+  createdAt?: Timestamp;
+};
