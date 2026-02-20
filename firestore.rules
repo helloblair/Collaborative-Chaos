@@ -2,28 +2,34 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Guard: board exists AND caller is a member.
+    // Using exists() before get() prevents a null-dereference when the
+    // board document has been deleted mid-session.
     function isBoardMember(boardId) {
       return request.auth != null
+        && exists(/databases/$(database)/documents/boards/$(boardId))
         && request.auth.uid in get(/databases/$(database)/documents/boards/$(boardId)).data.members;
     }
 
-    // Top-level board documents
     match /boards/{boardId} {
-      // Members can read their board
-      allow read: if request.auth != null
+      // get: allow members to read; also allow reads of non-existent docs so the
+      // client can distinguish "not found" from "forbidden" (resource == null when doc missing).
+      allow get: if request.auth != null
+        && (resource == null || request.auth.uid in resource.data.members);
+
+      // list: only members' own boards are returned by the where() query.
+      // Firestore validates that the query constraint (array-contains uid) is
+      // equivalent to this rule, so the query is permitted.
+      allow list: if request.auth != null
         && request.auth.uid in resource.data.members;
 
-      // Any authenticated user can create a board they seed as a member
       allow create: if request.auth != null
         && request.auth.uid in request.resource.data.members;
 
-      // Members can update board metadata; non-members can self-join (invite link flow):
-      // a self-join is valid when the requester only adds themselves to both arrays
-      // and does not remove any existing member or change any other fields.
+      // Members can update; non-members can self-join via invite link.
       allow update: if request.auth != null && (
         request.auth.uid in resource.data.members
         || (
-          // Self-join: only appending the requester's own UID + email
           request.resource.data.members.hasAll(resource.data.members)
           && request.resource.data.members.size() == resource.data.members.size() + 1
           && request.auth.uid in request.resource.data.members
@@ -32,17 +38,14 @@ service cloud.firestore {
         )
       );
 
-      // Only the creator can delete a board
       allow delete: if request.auth != null
         && request.auth.uid == resource.data.createdBy;
 
-      // Board items — gated on board membership
       match /items/{itemId} {
         allow read, write: if isBoardMember(boardId);
       }
     }
 
-    // User profiles — any signed-in user can read; only the owner can write
     match /users/{userId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;

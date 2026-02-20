@@ -76,15 +76,21 @@ export function subscribeUserBoards(
   callback: (boards: Board[]) => void
 ): () => void {
   const q = query(boardsCol, where("members", "array-contains", uid));
-  return onSnapshot(q, (snap) => {
-    const boards = snap.docs.map((d) => d.data() as Board);
-    boards.sort((a, b) => {
-      const toMs = (ts: unknown) =>
-        ts && typeof (ts as { toMillis?: () => number }).toMillis === "function"
-          ? (ts as { toMillis: () => number }).toMillis()
-          : 0;
-      return toMs(b.updatedAt) - toMs(a.updatedAt);
-    });
-    callback(boards);
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      const boards = snap.docs.map((d) => d.data() as Board);
+      boards.sort((a, b) => {
+        const toMs = (ts: unknown) =>
+          ts && typeof (ts as { toMillis?: () => number }).toMillis === "function"
+            ? (ts as { toMillis: () => number }).toMillis()
+            : 0;
+        return toMs(b.updatedAt) - toMs(a.updatedAt);
+      });
+      callback(boards);
+    },
+    (err) => {
+      console.error("[boards] subscribeUserBoards permission error:", err.code, err.message);
+    }
+  );
 }

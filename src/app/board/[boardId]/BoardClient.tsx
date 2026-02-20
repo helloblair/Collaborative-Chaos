@@ -172,26 +172,32 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       return;
     }
     const itemsRef = collection(db, "boards", boardId, "items");
-    const unsubscribe = onSnapshot(itemsRef, (snapshot) => {
-      const items: Record<string, BoardItem> = {};
-      snapshot.docs.forEach((d) => {
-        const data = d.data();
-        const type = data.type === "rect" ? "rect" : "sticky";
-        items[d.id] = {
-          id: d.id,
-          type,
-          x: data.x ?? 0,
-          y: data.y ?? 0,
-          text: data.text ?? "",
-          width: data.width,
-          height: data.height,
-          fill: data.fill,
-          createdBy: data.createdBy ?? "",
-          updatedAt: data.updatedAt,
-        };
-      });
-      setBoardItems(items);
-    });
+    const unsubscribe = onSnapshot(
+      itemsRef,
+      (snapshot) => {
+        const items: Record<string, BoardItem> = {};
+        snapshot.docs.forEach((d) => {
+          const data = d.data();
+          const type = data.type === "rect" ? "rect" : "sticky";
+          items[d.id] = {
+            id: d.id,
+            type,
+            x: data.x ?? 0,
+            y: data.y ?? 0,
+            text: data.text ?? "",
+            width: data.width,
+            height: data.height,
+            fill: data.fill,
+            createdBy: data.createdBy ?? "",
+            updatedAt: data.updatedAt,
+          };
+        });
+        setBoardItems(items);
+      },
+      (err) => {
+        console.error("[board] items snapshot permission error:", err.code, err.message);
+      }
+    );
     return unsubscribe;
   }, [boardId, uid, boardAccess]);
 
