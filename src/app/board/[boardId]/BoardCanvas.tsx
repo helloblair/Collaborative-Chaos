@@ -1,9 +1,10 @@
 "use client";
 
-import type { BoardItem } from "@/types/board";
+import type { BoardItem, Connector } from "@/types/board";
 import type Konva from "konva";
-import { Circle, Group, Layer, Line, Rect, Stage, Text } from "react-konva";
+import { Arrow, Circle, Group, Layer, Line, Rect, Stage, Text } from "react-konva";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDragBroadcast } from "@/hooks/useDragBroadcast";
 
 const STICKY_SIZE = 160;
 const STICKY_PADDING = 12;
@@ -25,6 +26,13 @@ export type PresenceEntry = {
   lastActive?: unknown;
 };
 
+export type DraggingEntry = {
+  x: number;
+  y: number;
+  userId: string;
+  timestamp: number;
+};
+
 function isPresenceActive(p: PresenceEntry | null | undefined): boolean {
   if (!p || p.isOnline !== true) return false;
   const t = p.lastActive;
@@ -32,17 +40,253 @@ function isPresenceActive(p: PresenceEntry | null | undefined): boolean {
   return Date.now() - t < STALE_PRESENCE_MS;
 }
 
+// ─── Connector geometry helpers ───────────────────────────────────────────────
+
+function getItemBounds(item: BoardItem): { x: number; y: number; w: number; h: number } {
+  return {
+    x: item.x,
+    y: item.y,
+    w: item.width ?? (item.type === "rect" ? 200 : STICKY_SIZE),
+    h: item.height ?? (item.type === "rect" ? 120 : STICKY_SIZE),
+  };
+}
+
+function getEdgePoint(
+  rect: { x: number; y: number; w: number; h: number },
+  targetCenter: { x: number; y: number }
+): { x: number; y: number } {
+  const cx = rect.x + rect.w / 2;
+  const cy = rect.y + rect.h / 2;
+  const dx = targetCenter.x - cx;
+  const dy = targetCenter.y - cy;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+  if (absDx === 0 && absDy === 0) return { x: cx, y: cy };
+  if (absDx * rect.h > absDy * rect.w) {
+    const sign = Math.sign(dx);
+    return { x: cx + sign * rect.w / 2, y: cy + dy * (rect.w / 2) / absDx };
+  } else {
+    const sign = Math.sign(dy);
+    return { x: cx + dx * (rect.h / 2) / absDy, y: cy + sign * rect.h / 2 };
+  }
+}
+
+// ─── ConnectorLine sub-component ─────────────────────────────────────────────
+
+type ConnectorLineProps = {
+  conn: Connector;
+  fromItem: BoardItem;
+  toItem: BoardItem;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+};
+
+function ConnectorLine({ conn, fromItem, toItem, isSelected, onSelect }: ConnectorLineProps) {
+  const fromBounds = getItemBounds(fromItem);
+  const toBounds = getItemBounds(toItem);
+  const fromCenter = { x: fromBounds.x + fromBounds.w / 2, y: fromBounds.y + fromBounds.h / 2 };
+  const toCenter = { x: toBounds.x + toBounds.w / 2, y: toBounds.y + toBounds.h / 2 };
+  const fromPt = getEdgePoint(fromBounds, toCenter);
+  const toPt = getEdgePoint(toBounds, fromCenter);
+
+  const stroke = isSelected ? "#f59e0b" : conn.color;
+  const strokeWidth = isSelected ? 3 : 2;
+  const pts = [fromPt.x, fromPt.y, toPt.x, toPt.y];
+
+  if (conn.style === "arrow") {
+    return (
+      <Arrow
+        points={pts}
+        stroke={stroke}
+        fill={stroke}
+        strokeWidth={strokeWidth}
+        pointerLength={10}
+        pointerWidth={8}
+        hitStrokeWidth={12}
+        onClick={() => onSelect(conn.id)}
+      />
+    );
+  }
+  return (
+    <Line
+      points={pts}
+      stroke={stroke}
+      strokeWidth={strokeWidth}
+      hitStrokeWidth={12}
+      onClick={() => onSelect(conn.id)}
+    />
+  );
+}
+
+// ─── Per-item sub-components (allow calling useDragBroadcast per item) ────────
+
+type RectItemProps = {
+  item: BoardItem;
+  isSelected: boolean;
+  isConnectSource: boolean;
+  onSelect: (id: string) => void;
+  onItemClick?: (id: string) => void;
+  boardId: string;
+  uid: string | null | undefined;
+  isRemoteDragging: boolean;
+  activeTool: "select" | "connect";
+  onLocalDragMove: (id: string, x: number, y: number) => void;
+  onLocalDragEnd: (id: string) => void;
+};
+
+function RectItem({
+  item,
+  isSelected,
+  isConnectSource,
+  onSelect,
+  onItemClick,
+  boardId,
+  uid,
+  isRemoteDragging,
+  activeTool,
+  onLocalDragMove,
+  onLocalDragEnd,
+}: RectItemProps) {
+  const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const w = item.width ?? 200;
+  const h = item.height ?? 120;
+  const fill = item.fill ?? "#C6DEF1";
+  return (
+    <Group
+      x={item.x}
+      y={item.y}
+      draggable={!isRemoteDragging && activeTool !== "connect"}
+      onDragStart={() => onSelect(item.id)}
+      onClick={() => {
+        if (activeTool !== "connect") onSelect(item.id);
+        onItemClick?.(item.id);
+      }}
+      onDragMove={(e) => {
+        onDragMove(e.target.x(), e.target.y());
+        onLocalDragMove(item.id, e.target.x(), e.target.y());
+      }}
+      onDragEnd={(e) => {
+        onDragEnd(e.target.x(), e.target.y());
+        onLocalDragEnd(item.id);
+      }}
+    >
+      <Rect
+        width={w}
+        height={h}
+        fill={fill}
+        stroke={isConnectSource ? "#2563eb" : isSelected ? "#f59e0b" : undefined}
+        strokeWidth={isConnectSource || isSelected ? 2 : 0}
+        shadowColor="black"
+        shadowBlur={8}
+        shadowOpacity={0.2}
+      />
+    </Group>
+  );
+}
+
+type StickyItemProps = {
+  item: BoardItem;
+  isSelected: boolean;
+  isConnectSource: boolean;
+  isEditing: boolean;
+  onSelect: (id: string) => void;
+  onItemClick?: (id: string) => void;
+  onDblClick: (item: BoardItem) => void;
+  boardId: string;
+  uid: string | null | undefined;
+  isRemoteDragging: boolean;
+  activeTool: "select" | "connect";
+  onLocalDragMove: (id: string, x: number, y: number) => void;
+  onLocalDragEnd: (id: string) => void;
+};
+
+function StickyItem({
+  item,
+  isSelected,
+  isConnectSource,
+  isEditing,
+  onSelect,
+  onItemClick,
+  onDblClick,
+  boardId,
+  uid,
+  isRemoteDragging,
+  activeTool,
+  onLocalDragMove,
+  onLocalDragEnd,
+}: StickyItemProps) {
+  const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const w = item.width ?? STICKY_SIZE;
+  const h = item.height ?? STICKY_SIZE;
+  const fill = item.fill ?? "#C9E4DE";
+  return (
+    <Group
+      x={item.x}
+      y={item.y}
+      draggable={!isEditing && !isRemoteDragging && activeTool !== "connect"}
+      onDragStart={() => onSelect(item.id)}
+      onClick={() => {
+        if (activeTool !== "connect") onSelect(item.id);
+        onItemClick?.(item.id);
+      }}
+      onDblClick={() => activeTool !== "connect" && onDblClick(item)}
+      onDragMove={(e) => {
+        onDragMove(e.target.x(), e.target.y());
+        onLocalDragMove(item.id, e.target.x(), e.target.y());
+      }}
+      onDragEnd={(e) => {
+        onDragEnd(e.target.x(), e.target.y());
+        onLocalDragEnd(item.id);
+      }}
+    >
+      <Rect
+        width={w}
+        height={h}
+        fill={fill}
+        cornerRadius={8}
+        stroke={isConnectSource ? "#2563eb" : isSelected ? "#f59e0b" : undefined}
+        strokeWidth={isConnectSource || isSelected ? 2 : 0}
+        shadowColor="black"
+        shadowBlur={8}
+        shadowOpacity={0.2}
+      />
+      <Text
+        x={STICKY_PADDING}
+        y={STICKY_PADDING}
+        width={w - STICKY_PADDING * 2}
+        height={h - STICKY_PADDING * 2}
+        text={item.text ?? "Sticky"}
+        fontSize={14}
+        fontFamily="sans-serif"
+        fill="#1c1917"
+        listening={false}
+        wrap="word"
+      />
+    </Group>
+  );
+}
+
+// ─── Main canvas component ────────────────────────────────────────────────────
+
 export type BoardCanvasProps = {
   width: number;
   height: number;
   items: BoardItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
-  onMoveEnd: (id: string, x: number, y: number) => void;
+  onItemClick?: (id: string) => void;
   onTextCommit: (id: string, nextText: string) => void;
   presenceMap?: Record<string, PresenceEntry>;
   uid?: string | null;
   onCursorMove?: (worldX: number, worldY: number) => void;
+  boardId: string;
+  remoteDragging?: Record<string, DraggingEntry>;
+  connectors?: Connector[];
+  activeTool?: "select" | "connect";
+  connectSourceId?: string | null;
+  selectedConnectorId?: string | null;
+  onSelectConnector?: (id: string) => void;
+  onBgClick?: () => void;
 };
 
 export function BoardCanvas({
@@ -51,25 +295,68 @@ export function BoardCanvas({
   items,
   selectedId,
   onSelect,
-  onMoveEnd,
+  onItemClick,
   onTextCommit,
   presenceMap = {},
   uid = null,
   onCursorMove,
+  boardId,
+  remoteDragging = {},
+  connectors = [],
+  activeTool = "select",
+  connectSourceId = null,
+  selectedConnectorId = null,
+  onSelectConnector,
+  onBgClick,
 }: BoardCanvasProps) {
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
+  const [localPositions, setLocalPositions] = useState<Record<string, { x: number; y: number }>>({});
+  const [connectPreviewPos, setConnectPreviewPos] = useState<{ x: number; y: number } | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isPanningRef = useRef(false);
   const panStartRef = useRef<{ x: number; y: number } | null>(null);
   const stageStartRef = useRef<{ x: number; y: number } | null>(null);
-  // Throttle live drag broadcasts to ~50ms so other clients see smooth movement
-  const moveThrottleRef = useRef(0);
   const cursorThrottleRef = useRef(0);
+
+  // Refs for stable callbacks that need current tool state
+  const activeToolRef = useRef(activeTool);
+  activeToolRef.current = activeTool;
+  const connectSourceIdRef = useRef(connectSourceId);
+  connectSourceIdRef.current = connectSourceId;
+
+  // Effective item positions: prefer local drag > remote drag > Firestore
+  const effectiveItemsById = useMemo(() => {
+    const map: Record<string, BoardItem> = {};
+    for (const item of items) {
+      const localPos = localPositions[item.id];
+      const remoteEntry = remoteDragging[item.id];
+      if (localPos) {
+        map[item.id] = { ...item, x: localPos.x, y: localPos.y };
+      } else if (remoteEntry) {
+        map[item.id] = { ...item, x: remoteEntry.x, y: remoteEntry.y };
+      } else {
+        map[item.id] = item;
+      }
+    }
+    return map;
+  }, [items, remoteDragging, localPositions]);
+
+  const handleLocalDragMove = useCallback((id: string, x: number, y: number) => {
+    setLocalPositions((prev) => ({ ...prev, [id]: { x, y } }));
+  }, []);
+
+  const handleLocalDragEnd = useCallback((id: string) => {
+    setLocalPositions((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
 
   const handleWheel = useCallback(
     (e: { evt: WheelEvent }) => {
@@ -78,7 +365,6 @@ export function BoardCanvas({
       if (!stage) return;
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
-      // Read live values from the Konva node so rapid scroll events don't use stale closure state
       const oldScale = stage.scaleX();
       const oldX = stage.x();
       const oldY = stage.y();
@@ -95,7 +381,7 @@ export function BoardCanvas({
         y: pointer.y - mousePointTo.y * clampedScale,
       });
     },
-    [] // stageRef is stable — no deps needed
+    []
   );
 
   const handleStageMouseDown = useCallback(
@@ -113,7 +399,7 @@ export function BoardCanvas({
         }
       }
     },
-    [] // stageRef is stable — no deps needed
+    []
   );
 
   const handleStageTouchStart = useCallback(
@@ -131,7 +417,7 @@ export function BoardCanvas({
         }
       }
     },
-    [] // stageRef is stable — no deps needed
+    []
   );
 
   const handleStageMouseMove = useCallback(
@@ -139,13 +425,21 @@ export function BoardCanvas({
       const stage = e.target.getStage();
       if (!stage) return;
       const pointer = stage.getPointerPosition();
-      if (pointer && onCursorMove) {
-        const now = performance.now();
-        if (now - cursorThrottleRef.current >= CURSOR_THROTTLE_MS) {
-          cursorThrottleRef.current = now;
-          const worldX = (pointer.x - stage.x()) / stage.scaleX();
-          const worldY = (pointer.y - stage.y()) / stage.scaleY();
-          onCursorMove(worldX, worldY);
+      if (pointer) {
+        const worldX = (pointer.x - stage.x()) / stage.scaleX();
+        const worldY = (pointer.y - stage.y()) / stage.scaleY();
+
+        if (onCursorMove) {
+          const now = performance.now();
+          if (now - cursorThrottleRef.current >= CURSOR_THROTTLE_MS) {
+            cursorThrottleRef.current = now;
+            onCursorMove(worldX, worldY);
+          }
+        }
+
+        // Update preview line position in connect mode
+        if (activeToolRef.current === "connect" && connectSourceIdRef.current) {
+          setConnectPreviewPos({ x: worldX, y: worldY });
         }
       }
       if (!isPanningRef.current || !panStartRef.current || !stageStartRef.current) return;
@@ -230,6 +524,25 @@ export function BoardCanvas({
     return { vertical, horizontal };
   }, []);
 
+  // Preview line for connect mode: dashed line from source edge to cursor
+  const previewLine = useMemo(() => {
+    if (activeTool !== "connect" || !connectSourceId || !connectPreviewPos) return null;
+    const sourceItem = effectiveItemsById[connectSourceId];
+    if (!sourceItem) return null;
+    const bounds = getItemBounds(sourceItem);
+    const srcEdge = getEdgePoint(bounds, connectPreviewPos);
+    return (
+      <Line
+        key="connector-preview"
+        points={[srcEdge.x, srcEdge.y, connectPreviewPos.x, connectPreviewPos.y]}
+        stroke="#2563eb"
+        strokeWidth={1.5}
+        dash={[6, 4]}
+        listening={false}
+      />
+    );
+  }, [activeTool, connectSourceId, connectPreviewPos, effectiveItemsById]);
+
   useEffect(() => {
     if (editingId && textareaRef.current) {
       textareaRef.current.focus();
@@ -255,7 +568,7 @@ export function BoardCanvas({
         onTouchEnd={handleStageTouchEnd}
       >
         <Layer>
-          {/* Background: full world extent so it persists when panning/zooming; hit when clicking empty space */}
+          {/* Background: full world extent; onClick clears connector/item selection */}
           <Rect
             name="bg"
             x={-WORLD_HALF}
@@ -263,100 +576,76 @@ export function BoardCanvas({
             width={WORLD_HALF * 2}
             height={WORLD_HALF * 2}
             fill="#f5f5f5"
+            onClick={() => onBgClick?.()}
           />
           {/* Subtle grid lines every 40px */}
           <Line points={gridLines.vertical} stroke="#f3f4f6" strokeWidth={1} listening={false} />
           <Line points={gridLines.horizontal} stroke="#f3f4f6" strokeWidth={1} listening={false} />
+
+          {/* Preview line while selecting connector target */}
+          {previewLine}
+
+          {/* Connectors — rendered before items so items appear on top */}
+          {connectors.map((conn) => {
+            const fromItem = effectiveItemsById[conn.fromId];
+            const toItem = effectiveItemsById[conn.toId];
+            if (!fromItem || !toItem) return null;
+            return (
+              <ConnectorLine
+                key={conn.id}
+                conn={conn}
+                fromItem={fromItem}
+                toItem={toItem}
+                isSelected={conn.id === selectedConnectorId}
+                onSelect={onSelectConnector ?? (() => {})}
+              />
+            );
+          })}
+
+          {/* Board items */}
           {items.map((item) => {
             const isSelected = item.id === selectedId;
+            const isConnectSource = item.id === connectSourceId;
+            // If another user is actively dragging this item, use their RTDB position
+            const remoteEntry = remoteDragging[item.id];
+            const displayItem = effectiveItemsById[item.id] ?? item;
 
             if (item.type === "rect") {
-              const w = item.width ?? 200;
-              const h = item.height ?? 120;
-              const fill = item.fill ?? "#C6DEF1";
               return (
-                <Group
+                <RectItem
                   key={item.id}
-                  x={item.x}
-                  y={item.y}
-                  draggable
-                  onDragStart={() => onSelect(item.id)}
-                  onClick={() => onSelect(item.id)}
-                  onDragMove={(e) => {
-                    const now = performance.now();
-                    if (now - moveThrottleRef.current < 50) return;
-                    moveThrottleRef.current = now;
-                    const node = e.target;
-                    onMoveEnd(item.id, node.x(), node.y());
-                  }}
-                  onDragEnd={(e) => {
-                    const node = e.target;
-                    onMoveEnd(item.id, node.x(), node.y());
-                  }}
-                >
-                  <Rect
-                    width={w}
-                    height={h}
-                    fill={fill}
-                    stroke={isSelected ? "#f59e0b" : undefined}
-                    strokeWidth={isSelected ? 2 : 0}
-                    shadowColor="black"
-                    shadowBlur={8}
-                    shadowOpacity={0.2}
-                  />
-                </Group>
+                  item={displayItem}
+                  isSelected={isSelected}
+                  isConnectSource={isConnectSource}
+                  onSelect={onSelect}
+                  onItemClick={onItemClick}
+                  boardId={boardId}
+                  uid={uid}
+                  isRemoteDragging={!!remoteEntry}
+                  activeTool={activeTool}
+                  onLocalDragMove={handleLocalDragMove}
+                  onLocalDragEnd={handleLocalDragEnd}
+                />
               );
             }
 
-            // sticky (square, mint default)
-            const w = item.width ?? STICKY_SIZE;
-            const h = item.height ?? STICKY_SIZE;
-            const fill = item.fill ?? "#C9E4DE";
             return (
-              <Group
+              <StickyItem
                 key={item.id}
-                x={item.x}
-                y={item.y}
-                draggable={editingId !== item.id}
-                onDragStart={() => onSelect(item.id)}
-                onClick={() => onSelect(item.id)}
-                onDblClick={() => handleStickyDblClick(item)}
-                onDragMove={(e) => {
-                  const now = performance.now();
-                  if (now - moveThrottleRef.current < 50) return;
-                  moveThrottleRef.current = now;
-                  const node = e.target;
-                  onMoveEnd(item.id, node.x(), node.y());
-                }}
-                onDragEnd={(e) => {
-                  const node = e.target;
-                  onMoveEnd(item.id, node.x(), node.y());
-                }}
-              >
-                <Rect
-                  width={w}
-                  height={h}
-                  fill={fill}
-                  cornerRadius={8}
-                  stroke={isSelected ? "#f59e0b" : undefined}
-                  strokeWidth={isSelected ? 2 : 0}
-                  shadowColor="black"
-                  shadowBlur={8}
-                  shadowOpacity={0.2}
-                />
-                <Text
-                  x={STICKY_PADDING}
-                  y={STICKY_PADDING}
-                  width={w - STICKY_PADDING * 2}
-                  height={h - STICKY_PADDING * 2}
-                  text={item.text ?? "Sticky"}
-                  fontSize={14}
-                  fontFamily="sans-serif"
-                  fill="#1c1917"
-                  listening={false}
-                  wrap="word"
-                />
-              </Group>
+                item={displayItem}
+                isSelected={isSelected}
+                isConnectSource={isConnectSource}
+                isEditing={editingId === item.id}
+                onSelect={onSelect}
+                onItemClick={onItemClick}
+                onDblClick={handleStickyDblClick}
+                boardId={boardId}
+                uid={uid}
+                isRemoteDragging={!!remoteEntry}
+                activeTool={activeTool}
+                onLocalDragMove={handleLocalDragMove}
+                onLocalDragEnd={handleLocalDragEnd}
+              />
             );
           })}
         </Layer>

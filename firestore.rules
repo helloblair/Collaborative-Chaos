@@ -44,6 +44,10 @@ service cloud.firestore {
       match /items/{itemId} {
         allow read, write: if isBoardMember(boardId);
       }
+
+      match /connectors/{connectorId} {
+        allow read, write: if isBoardMember(boardId);
+      }
     }
 
     match /users/{userId} {

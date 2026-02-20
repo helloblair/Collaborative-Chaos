@@ -2,10 +2,10 @@
 
 import { auth, db, FIREBASE_DATABASE_URL, FIREBASE_PROJECT_ID, rtdb } from "@/lib/firebase";
 import { getBoard, joinBoard } from "@/lib/boards";
-import type { Board, BoardItem } from "@/types/board";
+import type { Board, BoardItem, Connector } from "@/types/board";
 import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { onDisconnect, onValue, ref, remove, serverTimestamp as rtdbServerTimestamp, set, update } from "firebase/database";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -66,15 +66,20 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [copyFeedback, setCopyFeedback] = useState(false);
   const [presenceMap, setPresenceMap] = useState<Record<string, Presence>>({});
   const [boardItems, setBoardItems] = useState<Record<string, BoardItem>>({});
+  const [connectors, setConnectors] = useState<Record<string, Connector>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
+  const [activeTool, setActiveTool] = useState<"select" | "connect">("select");
+  const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
   const [lastBoardClick, setLastBoardClick] = useState<{ x: number; y: number } | null>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [rtdbError, setRtdbError] = useState<string | null>(null);
+  const [remoteDragging, setRemoteDragging] = useState<Record<string, { x: number; y: number; userId: string; timestamp: number }>>({});
   const boardRef = useRef<HTMLElement | null>(null);
   const retryRef = useRef(false);
   const localSessionId = useMemo(() => nanoid(), []);
@@ -101,7 +106,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const dragStateRef = useRef(dragState);
   dragStateRef.current = dragState;
 
-  const myPresencePath = uid ? `presence/${boardId}/${uid}-${localSessionId}` : null;
+  const myPresencePath = uid ? `boards/${boardId}/presence/${uid}-${localSessionId}` : null;
 
   const signInHere = async () => {
     const provider = new GoogleAuthProvider();
@@ -196,6 +201,39 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       },
       (err) => {
         console.error("[board] items snapshot permission error:", err.code, err.message);
+      }
+    );
+    return unsubscribe;
+  }, [boardId, uid, boardAccess]);
+
+  // Connectors subscription
+  useEffect(() => {
+    if (boardAccess !== "ok" || typeof uid !== "string" || uid === "") {
+      setConnectors({});
+      return;
+    }
+    const connectorsRef = collection(db, "boards", boardId, "connectors");
+    const unsubscribe = onSnapshot(
+      connectorsRef,
+      (snapshot) => {
+        const conns: Record<string, Connector> = {};
+        snapshot.docs.forEach((d) => {
+          const data = d.data();
+          conns[d.id] = {
+            id: d.id,
+            boardId,
+            fromId: data.fromId ?? "",
+            toId: data.toId ?? "",
+            style: data.style === "line" ? "line" : "arrow",
+            color: data.color ?? "#374151",
+            createdBy: data.createdBy ?? "",
+            createdAt: data.createdAt,
+          };
+        });
+        setConnectors(conns);
+      },
+      (err) => {
+        console.error("[board] connectors snapshot error:", err.code, err.message);
       }
     );
     return unsubscribe;
@@ -323,33 +361,53 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
   const draggingItemId = dragState?.itemId ?? null;
 
-  const handleCanvasMoveEnd = useCallback(
-    async (id: string, x: number, y: number) => {
-      try {
-        const itemsRef = collection(db, "boards", boardId, "items");
-        const itemRef = doc(itemsRef, id);
-        await updateDoc(itemRef, {
-          x: Math.round(x),
-          y: Math.round(y),
-          updatedAt: serverTimestamp(),
-        });
-      } catch {
-        // Revert will happen via Firestore sync
+  // Subscribe to other users' active drags from RTDB; filter out own entries
+  useEffect(() => {
+    if (boardAccess !== "ok" || typeof uid !== "string" || uid === "") {
+      setRemoteDragging({});
+      return;
+    }
+    const draggingRef = ref(rtdb, `boards/${boardId}/dragging`);
+    const unsub = onValue(draggingRef, (snap) => {
+      const val = snap.val() as Record<string, { x: number; y: number; userId: string; timestamp: number }> | null;
+      const filtered: Record<string, { x: number; y: number; userId: string; timestamp: number }> = {};
+      for (const [id, entry] of Object.entries(val ?? {})) {
+        if (entry.userId !== uid) filtered[id] = entry;
       }
-    },
-    [boardId]
-  );
+      setRemoteDragging(filtered);
+    });
+    return () => unsub();
+  }, [boardId, uid, boardAccess]);
 
+  // Delete selected item with connector cascade
   const handleDeleteItem = useCallback(async () => {
     if (!selectedId) return;
     try {
-      const itemRef = doc(collection(db, "boards", boardId, "items"), selectedId);
-      await deleteDoc(itemRef);
+      const batch = writeBatch(db);
+      batch.delete(doc(collection(db, "boards", boardId, "items"), selectedId));
+      // Cascade: delete all connectors referencing this item
+      for (const conn of Object.values(connectors)) {
+        if (conn.fromId === selectedId || conn.toId === selectedId) {
+          batch.delete(doc(collection(db, "boards", boardId, "connectors"), conn.id));
+        }
+      }
+      await batch.commit();
       setSelectedId(null);
     } catch {
       // Firestore sync will reconcile
     }
-  }, [boardId, selectedId]);
+  }, [boardId, selectedId, connectors]);
+
+  // Delete selected connector
+  const handleDeleteConnector = useCallback(async () => {
+    if (!selectedConnectorId) return;
+    try {
+      await deleteDoc(doc(collection(db, "boards", boardId, "connectors"), selectedConnectorId));
+      setSelectedConnectorId(null);
+    } catch {
+      // Firestore sync will reconcile
+    }
+  }, [boardId, selectedConnectorId]);
 
   const handleColorChange = useCallback(async (color: string) => {
     if (!selectedId) return;
@@ -380,6 +438,56 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   );
 
   const itemsArray = useMemo(() => Object.values(boardItems), [boardItems]);
+  const connectorsArray = useMemo(() => Object.values(connectors), [connectors]);
+
+  // Handle item clicks — routes by active tool
+  const handleItemClick = useCallback(
+    async (id: string) => {
+      if (activeTool === "select") {
+        setSelectedId(id);
+        setSelectedConnectorId(null);
+        return;
+      }
+      // Connect mode
+      if (typeof uid !== "string" || !uid) return;
+      if (!connectSourceId) {
+        setConnectSourceId(id);
+      } else if (connectSourceId === id) {
+        // Clicked same item — cancel source
+        setConnectSourceId(null);
+      } else {
+        // Create connector between source and target
+        try {
+          await addDoc(collection(db, "boards", boardId, "connectors"), {
+            fromId: connectSourceId,
+            toId: id,
+            style: "arrow",
+            color: "#374151",
+            createdBy: uid,
+            createdAt: serverTimestamp(),
+          });
+        } catch (err) {
+          console.error("[board] failed to create connector:", err);
+        }
+        setConnectSourceId(null);
+      }
+    },
+    [activeTool, connectSourceId, boardId, uid]
+  );
+
+  // Handle connector selection
+  const handleSelectConnector = useCallback((id: string) => {
+    setSelectedConnectorId(id);
+    setSelectedId(null);
+  }, []);
+
+  // Handle canvas background click — clears selections and cancels connect source
+  const handleBgClick = useCallback(() => {
+    if (activeTool === "connect") {
+      setConnectSourceId(null);
+    }
+    setSelectedConnectorId(null);
+  }, [activeTool]);
 
   // D) Drag handlers: mousedown → mousemove → mouseup (persist on drop)
   const handleStickyMouseDown = useCallback(
@@ -461,7 +569,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     let unsub: (() => void) | null = null;
 
     const subscribe = () => {
-      const pRef = ref(rtdb, `presence/${boardId}`);
+      const pRef = ref(rtdb, `boards/${boardId}/presence`);
       unsub = onValue(
         pRef,
         (snap) => {
@@ -534,18 +642,32 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     [uid, myPresencePath]
   );
 
-  // Delete selected item via keyboard
+  // Keyboard: Delete/Backspace to delete selection; Escape to cancel connect mode
   useEffect(() => {
-    if (!selectedId) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
       const active = document.activeElement as HTMLElement | null;
       if (active?.tagName === "TEXTAREA" || active?.tagName === "INPUT") return;
-      handleDeleteItem();
+
+      if (e.key === "Escape") {
+        if (activeTool === "connect") {
+          setConnectSourceId(null);
+          setActiveTool("select");
+        }
+        setSelectedConnectorId(null);
+        return;
+      }
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (selectedId) {
+          handleDeleteItem();
+        } else if (selectedConnectorId) {
+          handleDeleteConnector();
+        }
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId, handleDeleteItem]);
+  }, [selectedId, selectedConnectorId, activeTool, handleDeleteItem, handleDeleteConnector]);
 
   // E) Sort items so active/dragged renders on top; stable sort by activeItemId
   const sortedItems = useMemo(() => {
@@ -618,7 +740,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             <button
               type="button"
               onClick={handleAddSticky}
-              disabled={isCreating}
+              disabled={isCreating || activeTool === "connect"}
               className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
               aria-label="Add sticky note"
             >
@@ -627,14 +749,38 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             <button
               type="button"
               onClick={handleAddRect}
-              disabled={isCreating}
+              disabled={isCreating || activeTool === "connect"}
               className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
               aria-label="Add rectangle"
             >
               {isCreating ? "Creating…" : "Add Rectangle"}
             </button>
 
-            {selectedId && (
+            {/* Connect tool toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = activeTool === "connect" ? "select" : "connect";
+                setActiveTool(next);
+                setConnectSourceId(null);
+                setSelectedId(null);
+                setSelectedConnectorId(null);
+              }}
+              className={`w-full rounded-lg px-3 py-2 border font-medium text-sm transition-colors text-left ${
+                activeTool === "connect"
+                  ? "bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
+                  : "bg-white border-gray-200 hover:bg-gray-100 text-gray-700"
+              }`}
+              aria-label="Connect objects"
+            >
+              {activeTool === "connect"
+                ? connectSourceId
+                  ? "Click target…"
+                  : "Click source…"
+                : "Connect"}
+            </button>
+
+            {selectedId && activeTool === "select" && (
               <>
                 <hr className="border-gray-200" />
                 <label className="text-xs text-gray-500 font-medium px-1">Color</label>
@@ -661,6 +807,21 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                   aria-label="Delete selected item"
                 >
                   Delete
+                </button>
+              </>
+            )}
+
+            {selectedConnectorId && (
+              <>
+                <hr className="border-gray-200" />
+                <p className="text-xs text-gray-500 font-medium px-1">Connector selected</p>
+                <button
+                  type="button"
+                  onClick={handleDeleteConnector}
+                  className="w-full rounded-lg px-3 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 font-medium text-sm transition-colors text-left"
+                  aria-label="Delete selected connector"
+                >
+                  Delete Connector
                 </button>
               </>
             )}
@@ -714,11 +875,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             items={itemsArray}
             selectedId={selectedId}
             onSelect={setSelectedId}
-            onMoveEnd={handleCanvasMoveEnd}
+            onItemClick={handleItemClick}
             onTextCommit={handleTextCommit}
             presenceMap={presenceMap}
             uid={uid}
             onCursorMove={handleCursorMove}
+            boardId={boardId}
+            remoteDragging={remoteDragging}
+            connectors={connectorsArray}
+            activeTool={activeTool}
+            connectSourceId={connectSourceId}
+            selectedConnectorId={selectedConnectorId}
+            onSelectConnector={handleSelectConnector}
+            onBgClick={handleBgClick}
           />
         )}
       </div>
@@ -807,6 +976,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             <div>myPresencePath: {myPresencePath ?? "(null)"}</div>
             <div>presenceMap.keys.length: {Object.keys(presenceMap).length}</div>
             <div>first 3 keys: {Object.keys(presenceMap).slice(0, 3).join(", ") || "(none)"}</div>
+            <div>connectors: {connectorsArray.length}</div>
             {rtdbError && <div className="text-red-400">rtdbError: {rtdbError}</div>}
           </div>
         </div>
