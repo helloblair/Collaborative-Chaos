@@ -359,6 +359,9 @@ export function BoardCanvas({
               </Group>
             );
           })}
+        </Layer>
+        {/* Ephemeral layer — redraws at cursor frequency without touching board objects */}
+        <Layer listening={false}>
           {/* Other users' cursors (world space) */}
           {otherPresences.map(([key, p]) => (
             <Group key={key} x={p.cursorX} y={p.cursorY} listening={false}>
