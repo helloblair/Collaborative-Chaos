@@ -2,7 +2,7 @@
 
 import type { BoardItem, Connector } from "@/types/board";
 import type Konva from "konva";
-import { Arrow, Circle, Group, Layer, Line, Rect, Stage, Text } from "react-konva";
+import { Arrow, Circle, Group, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDragBroadcast } from "@/hooks/useDragBroadcast";
 
@@ -16,6 +16,8 @@ const WORLD_HALF = 20000;
 const GRID_STEP = 40;
 const CURSOR_THROTTLE_MS = 40;
 const STALE_PRESENCE_MS = 20000;
+const FRAME_LABEL_H = 26;
+const FRAME_MIN_SIZE = 80;
 
 export type PresenceEntry = {
   name: string;
@@ -46,8 +48,8 @@ function getItemBounds(item: BoardItem): { x: number; y: number; w: number; h: n
   return {
     x: item.x,
     y: item.y,
-    w: item.width ?? (item.type === "rect" ? 200 : STICKY_SIZE),
-    h: item.height ?? (item.type === "rect" ? 120 : STICKY_SIZE),
+    w: item.width ?? (item.type === "rect" ? 200 : item.type === "frame" ? 300 : STICKY_SIZE),
+    h: item.height ?? (item.type === "rect" ? 120 : item.type === "frame" ? 200 : item.type === "text" ? (item.fontSize ?? 16) * 2 : STICKY_SIZE),
   };
 }
 
@@ -129,7 +131,7 @@ type RectItemProps = {
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
-  activeTool: "select" | "connect";
+  activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string) => void;
 };
@@ -155,7 +157,7 @@ function RectItem({
     <Group
       x={item.x}
       y={item.y}
-      draggable={!isRemoteDragging && activeTool !== "connect"}
+      draggable={!isRemoteDragging && activeTool === "select"}
       onDragStart={() => onSelect(item.id)}
       onClick={() => {
         if (activeTool !== "connect") onSelect(item.id);
@@ -195,7 +197,7 @@ type StickyItemProps = {
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
-  activeTool: "select" | "connect";
+  activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string) => void;
 };
@@ -223,7 +225,7 @@ function StickyItem({
     <Group
       x={item.x}
       y={item.y}
-      draggable={!isEditing && !isRemoteDragging && activeTool !== "connect"}
+      draggable={!isEditing && !isRemoteDragging && activeTool === "select"}
       onDragStart={() => onSelect(item.id)}
       onClick={() => {
         if (activeTool !== "connect") onSelect(item.id);
@@ -266,6 +268,215 @@ function StickyItem({
   );
 }
 
+// ─── TextItem sub-component ───────────────────────────────────────────────────
+
+type TextItemProps = {
+  item: BoardItem;
+  isSelected: boolean;
+  isConnectSource: boolean;
+  isEditing: boolean;
+  onSelect: (id: string) => void;
+  onItemClick?: (id: string) => void;
+  onDblClick: (item: BoardItem) => void;
+  boardId: string;
+  uid: string | null | undefined;
+  isRemoteDragging: boolean;
+  activeTool: "select" | "connect" | "frame";
+  onLocalDragMove: (id: string, x: number, y: number) => void;
+  onLocalDragEnd: (id: string) => void;
+};
+
+function TextItem({
+  item,
+  isSelected,
+  isConnectSource,
+  isEditing,
+  onSelect,
+  onItemClick,
+  onDblClick,
+  boardId,
+  uid,
+  isRemoteDragging,
+  activeTool,
+  onLocalDragMove,
+  onLocalDragEnd,
+}: TextItemProps) {
+  const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const textNodeRef = useRef<Konva.Text | null>(null);
+  const [textH, setTextH] = useState(24);
+  const w = item.width ?? 200;
+  const fontSize = item.fontSize ?? 16;
+  const fill = item.fill ?? "#1c1917";
+
+  // Track rendered text height after each render so the hit/selection rect stays accurate
+  useEffect(() => {
+    const node = textNodeRef.current;
+    if (node) {
+      const h = Math.max(fontSize * 1.5, node.height());
+      if (h !== textH) setTextH(h);
+    }
+  });
+
+  return (
+    <Group
+      x={item.x}
+      y={item.y}
+      draggable={!isEditing && !isRemoteDragging && activeTool === "select"}
+      onDragStart={() => onSelect(item.id)}
+      onClick={() => {
+        if (activeTool !== "connect") onSelect(item.id);
+        onItemClick?.(item.id);
+      }}
+      onDblClick={() => activeTool !== "connect" && onDblClick(item)}
+      onDragMove={(e) => {
+        onDragMove(e.target.x(), e.target.y());
+        onLocalDragMove(item.id, e.target.x(), e.target.y());
+      }}
+      onDragEnd={(e) => {
+        onDragEnd(e.target.x(), e.target.y());
+        onLocalDragEnd(item.id);
+      }}
+    >
+      {/* Transparent hit area + selection ring */}
+      <Rect
+        width={w}
+        height={textH}
+        fill="transparent"
+        stroke={isConnectSource ? "#2563eb" : isSelected ? "#f59e0b" : "transparent"}
+        strokeWidth={isConnectSource || isSelected ? 1.5 : 0}
+        dash={isSelected ? [4, 3] : undefined}
+        cornerRadius={2}
+      />
+      {/* Text content — hidden while HTML textarea is active to avoid overlap */}
+      <Text
+        ref={(node) => { textNodeRef.current = node; }}
+        width={w}
+        text={item.text || "Text"}
+        fontSize={fontSize}
+        fontFamily="sans-serif"
+        fill={isEditing ? "rgba(0,0,0,0)" : fill}
+        wrap="word"
+        lineHeight={1.4}
+        listening={false}
+      />
+    </Group>
+  );
+}
+
+// ─── FrameItem sub-component ──────────────────────────────────────────────────
+
+type FrameItemProps = {
+  item: BoardItem;
+  isSelected: boolean;
+  onSelect: (id: string) => void;
+  boardId: string;
+  uid: string | null | undefined;
+  isRemoteDragging: boolean;
+  activeTool: "select" | "connect" | "frame";
+  onLocalDragMove: (id: string, x: number, y: number) => void;
+  onLocalDragEnd: (id: string) => void;
+  onDblClick: (item: BoardItem) => void;
+  onGroupMount: (id: string, node: Konva.Group | null) => void;
+  onTransformEnd: (id: string, x: number, y: number, width: number, height: number) => void;
+};
+
+function FrameItem({
+  item,
+  isSelected,
+  onSelect,
+  boardId,
+  uid,
+  isRemoteDragging,
+  activeTool,
+  onLocalDragMove,
+  onLocalDragEnd,
+  onDblClick,
+  onGroupMount,
+  onTransformEnd,
+}: FrameItemProps) {
+  const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const groupRef = useRef<Konva.Group | null>(null);
+  const w = item.width ?? 300;
+  const h = item.height ?? 200;
+  const borderColor = item.fill ?? "#6366f1";
+
+  useEffect(() => {
+    onGroupMount(item.id, groupRef.current);
+    return () => { onGroupMount(item.id, null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
+  return (
+    <Group
+      ref={(node) => { groupRef.current = node; }}
+      x={item.x}
+      y={item.y}
+      draggable={!isRemoteDragging && activeTool === "select"}
+      onDragStart={() => onSelect(item.id)}
+      onClick={() => {
+        if (activeTool === "select") onSelect(item.id);
+      }}
+      onDblClick={() => activeTool === "select" && onDblClick(item)}
+      onDragMove={(e) => {
+        onDragMove(e.target.x(), e.target.y());
+        onLocalDragMove(item.id, e.target.x(), e.target.y());
+      }}
+      onDragEnd={(e) => {
+        onDragEnd(e.target.x(), e.target.y());
+        onLocalDragEnd(item.id);
+      }}
+      onTransformEnd={() => {
+        const node = groupRef.current;
+        if (!node) return;
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        node.scaleX(1);
+        node.scaleY(1);
+        onTransformEnd(
+          item.id,
+          node.x(),
+          node.y(),
+          Math.max(FRAME_MIN_SIZE, Math.round(w * scaleX)),
+          Math.max(FRAME_MIN_SIZE, Math.round(h * scaleY))
+        );
+      }}
+    >
+      {/* Main frame rect */}
+      <Rect
+        width={w}
+        height={h}
+        fill="rgba(255,255,255,0.06)"
+        stroke={isSelected ? "#f59e0b" : borderColor}
+        strokeWidth={2}
+        cornerRadius={4}
+        dash={isSelected ? undefined : [10, 5]}
+      />
+      {/* Title bar at top */}
+      <Rect
+        width={w}
+        height={FRAME_LABEL_H}
+        fill={isSelected ? "#f59e0b" : borderColor}
+        opacity={0.9}
+        cornerRadius={[4, 4, 0, 0]}
+        listening={false}
+      />
+      <Text
+        x={8}
+        y={(FRAME_LABEL_H - 13) / 2}
+        width={w - 16}
+        height={FRAME_LABEL_H}
+        text={item.title ?? "Frame"}
+        fontSize={13}
+        fontFamily="sans-serif"
+        fill="#ffffff"
+        fontStyle="600"
+        ellipsis={true}
+        listening={false}
+      />
+    </Group>
+  );
+}
+
 // ─── Main canvas component ────────────────────────────────────────────────────
 
 export type BoardCanvasProps = {
@@ -282,11 +493,16 @@ export type BoardCanvasProps = {
   boardId: string;
   remoteDragging?: Record<string, DraggingEntry>;
   connectors?: Connector[];
-  activeTool?: "select" | "connect";
+  activeTool?: "select" | "connect" | "frame";
   connectSourceId?: string | null;
   selectedConnectorId?: string | null;
   onSelectConnector?: (id: string) => void;
   onBgClick?: () => void;
+  onFrameCreate?: (x: number, y: number, w: number, h: number) => void;
+  onFrameTitleCommit?: (id: string, title: string) => void;
+  onItemTransform?: (id: string, x: number, y: number, width: number, height: number) => void;
+  frameTitleEditingId?: string | null;
+  textEditingId?: string | null;
 };
 
 export function BoardCanvas({
@@ -308,6 +524,11 @@ export function BoardCanvas({
   selectedConnectorId = null,
   onSelectConnector,
   onBgClick,
+  onFrameCreate,
+  onFrameTitleCommit,
+  onItemTransform,
+  frameTitleEditingId = null,
+  textEditingId = null,
 }: BoardCanvasProps) {
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
@@ -315,19 +536,88 @@ export function BoardCanvas({
   const [editingValue, setEditingValue] = useState("");
   const [localPositions, setLocalPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [connectPreviewPos, setConnectPreviewPos] = useState<{ x: number; y: number } | null>(null);
+  const [frameDrawRect, setFrameDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [frameTitleEditId, setFrameTitleEditId] = useState<string | null>(null);
+  const [frameTitleValue, setFrameTitleValue] = useState("");
+
   const stageRef = useRef<Konva.Stage | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const frameTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   const isPanningRef = useRef(false);
   const panStartRef = useRef<{ x: number; y: number } | null>(null);
   const stageStartRef = useRef<{ x: number; y: number } | null>(null);
   const cursorThrottleRef = useRef(0);
+  const frameDrawStartRef = useRef<{ x: number; y: number } | null>(null);
+  const frameDrawRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  frameDrawRectRef.current = frameDrawRect;
 
-  // Refs for stable callbacks that need current tool state
+  // Refs for stable callbacks
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
   const connectSourceIdRef = useRef(connectSourceId);
   connectSourceIdRef.current = connectSourceId;
+  const onFrameCreateRef = useRef(onFrameCreate);
+  onFrameCreateRef.current = onFrameCreate;
+
+  // Transformer and frame node refs
+  const frameNodesRef = useRef<Map<string, Konva.Group>>(new Map());
+  const transformerRef = useRef<Konva.Transformer | null>(null);
+
+  const handleGroupMount = useCallback((id: string, node: Konva.Group | null) => {
+    if (node) {
+      frameNodesRef.current.set(id, node);
+    } else {
+      frameNodesRef.current.delete(id);
+    }
+  }, []);
+
+  // Sync Transformer to selected frame
+  const selectedItem = useMemo(() => items.find((i) => i.id === selectedId), [items, selectedId]);
+  const selectedIsFrame = selectedItem?.type === "frame";
+
+  useEffect(() => {
+    const tr = transformerRef.current;
+    if (!tr) return;
+    if (selectedIsFrame && selectedId) {
+      const node = frameNodesRef.current.get(selectedId);
+      if (node) {
+        tr.nodes([node]);
+        tr.getLayer()?.batchDraw();
+      } else {
+        tr.nodes([]);
+      }
+    } else {
+      tr.nodes([]);
+      tr.getLayer()?.batchDraw();
+    }
+  }, [selectedId, selectedIsFrame]);
+
+  // Trigger frame title editing when parent requests it
+  const prevFrameTitleEditingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (frameTitleEditingId && frameTitleEditingId !== prevFrameTitleEditingIdRef.current) {
+      prevFrameTitleEditingIdRef.current = frameTitleEditingId;
+      const frame = items.find((i) => i.id === frameTitleEditingId);
+      if (frame) {
+        setFrameTitleEditId(frameTitleEditingId);
+        setFrameTitleValue(frame.title ?? "Frame");
+      }
+    }
+  }, [frameTitleEditingId, items]);
+
+  // Auto-start text editing when parent creates a new text item
+  const prevTextEditingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (textEditingId && textEditingId !== prevTextEditingIdRef.current) {
+      prevTextEditingIdRef.current = textEditingId;
+      const textItem = items.find((i) => i.id === textEditingId);
+      if (textItem) {
+        setEditingId(textEditingId);
+        setEditingValue(textItem.text ?? "");
+      }
+    }
+  }, [textEditingId, items]);
 
   // Effective item positions: prefer local drag > remote drag > Firestore
   const effectiveItemsById = useMemo(() => {
@@ -393,6 +683,14 @@ export function BoardCanvas({
         if (!stage) return;
         const pos = stage.getPointerPosition();
         if (pos) {
+          if (activeToolRef.current === "frame") {
+            // Start drawing a frame instead of panning
+            const worldX = (pos.x - stage.x()) / stage.scaleX();
+            const worldY = (pos.y - stage.y()) / stage.scaleY();
+            frameDrawStartRef.current = { x: worldX, y: worldY };
+            setFrameDrawRect(null);
+            return;
+          }
           isPanningRef.current = true;
           panStartRef.current = { x: pos.x, y: pos.y };
           stageStartRef.current = { x: stage.x(), y: stage.y() };
@@ -441,6 +739,17 @@ export function BoardCanvas({
         if (activeToolRef.current === "connect" && connectSourceIdRef.current) {
           setConnectPreviewPos({ x: worldX, y: worldY });
         }
+
+        // Update frame draw preview
+        if (activeToolRef.current === "frame" && frameDrawStartRef.current) {
+          const start = frameDrawStartRef.current;
+          setFrameDrawRect({
+            x: Math.min(start.x, worldX),
+            y: Math.min(start.y, worldY),
+            w: Math.abs(worldX - start.x),
+            h: Math.abs(worldY - start.y),
+          });
+        }
       }
       if (!isPanningRef.current || !panStartRef.current || !stageStartRef.current) return;
       if (!pointer) return;
@@ -472,6 +781,16 @@ export function BoardCanvas({
   );
 
   const handleStageMouseUp = useCallback(() => {
+    // Complete frame draw
+    if (frameDrawStartRef.current && activeToolRef.current === "frame") {
+      const rect = frameDrawRectRef.current;
+      if (rect && rect.w > FRAME_MIN_SIZE && rect.h > FRAME_MIN_SIZE) {
+        onFrameCreateRef.current?.(rect.x, rect.y, rect.w, rect.h);
+      }
+      frameDrawStartRef.current = null;
+      setFrameDrawRect(null);
+      return;
+    }
     isPanningRef.current = false;
     panStartRef.current = null;
     stageStartRef.current = null;
@@ -495,12 +814,27 @@ export function BoardCanvas({
     setEditingId(null);
   }, []);
 
-  const handleStickyDblClick = useCallback((item: BoardItem) => {
+  // Used by both sticky and text items
+  const handleTextDblClick = useCallback((item: BoardItem) => {
     setEditingId(item.id);
     setEditingValue(item.text ?? "");
   }, []);
 
+  const handleFrameDblClick = useCallback((item: BoardItem) => {
+    setFrameTitleEditId(item.id);
+    setFrameTitleValue(item.title ?? "Frame");
+  }, []);
+
+  const commitFrameTitle = useCallback(
+    (id: string) => {
+      onFrameTitleCommit?.(id, frameTitleValue);
+      setFrameTitleEditId(null);
+    },
+    [frameTitleValue, onFrameTitleCommit]
+  );
+
   const editingItem = editingId ? items.find((i) => i.id === editingId) : null;
+  const frameTitleEditItem = frameTitleEditId ? items.find((i) => i.id === frameTitleEditId) : null;
 
   // Other users' cursors to render (world coords, exclude self; only recent sessions)
   const otherPresences = useMemo(() => {
@@ -543,14 +877,34 @@ export function BoardCanvas({
     );
   }, [activeTool, connectSourceId, connectPreviewPos, effectiveItemsById]);
 
+  // Split items for z-ordering: frames behind everything else
+  const frameItems = useMemo(() => items.filter((i) => i.type === "frame"), [items]);
+  const nonFrameItems = useMemo(() => items.filter((i) => i.type !== "frame"), [items]);
+
   useEffect(() => {
     if (editingId && textareaRef.current) {
       textareaRef.current.focus();
+      textareaRef.current.select();
     }
   }, [editingId]);
 
+  // Auto-resize textarea height for text-type items while editing
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta || !editingItem || editingItem.type !== "text") return;
+    ta.style.height = "auto";
+    ta.style.height = ta.scrollHeight + "px";
+  }, [editingValue, editingItem]);
+
+  useEffect(() => {
+    if (frameTitleEditId && frameTitleInputRef.current) {
+      frameTitleInputRef.current.focus();
+      frameTitleInputRef.current.select();
+    }
+  }, [frameTitleEditId]);
+
   return (
-    <div className="absolute inset-0 z-0">
+    <div className={`absolute inset-0 z-0${activeTool === "frame" ? " cursor-crosshair" : ""}`}>
       <Stage
         ref={stageRef}
         width={width}
@@ -582,6 +936,29 @@ export function BoardCanvas({
           <Line points={gridLines.vertical} stroke="#f3f4f6" strokeWidth={1} listening={false} />
           <Line points={gridLines.horizontal} stroke="#f3f4f6" strokeWidth={1} listening={false} />
 
+          {/* Frames — rendered first so they appear behind all other content */}
+          {frameItems.map((item) => {
+            const displayItem = effectiveItemsById[item.id] ?? item;
+            const remoteEntry = remoteDragging[item.id];
+            return (
+              <FrameItem
+                key={item.id}
+                item={displayItem}
+                isSelected={item.id === selectedId}
+                onSelect={onSelect}
+                boardId={boardId}
+                uid={uid}
+                isRemoteDragging={!!remoteEntry}
+                activeTool={activeTool}
+                onLocalDragMove={handleLocalDragMove}
+                onLocalDragEnd={handleLocalDragEnd}
+                onDblClick={handleFrameDblClick}
+                onGroupMount={handleGroupMount}
+                onTransformEnd={(id, x, y, w, h) => onItemTransform?.(id, x, y, w, h)}
+              />
+            );
+          })}
+
           {/* Preview line while selecting connector target */}
           {previewLine}
 
@@ -602,11 +979,10 @@ export function BoardCanvas({
             );
           })}
 
-          {/* Board items */}
-          {items.map((item) => {
+          {/* Board items (stickies and rects) */}
+          {nonFrameItems.map((item) => {
             const isSelected = item.id === selectedId;
             const isConnectSource = item.id === connectSourceId;
-            // If another user is actively dragging this item, use their RTDB position
             const remoteEntry = remoteDragging[item.id];
             const displayItem = effectiveItemsById[item.id] ?? item;
 
@@ -629,6 +1005,27 @@ export function BoardCanvas({
               );
             }
 
+            if (item.type === "text") {
+              return (
+                <TextItem
+                  key={item.id}
+                  item={displayItem}
+                  isSelected={isSelected}
+                  isConnectSource={isConnectSource}
+                  isEditing={editingId === item.id}
+                  onSelect={onSelect}
+                  onItemClick={onItemClick}
+                  onDblClick={handleTextDblClick}
+                  boardId={boardId}
+                  uid={uid}
+                  isRemoteDragging={!!remoteEntry}
+                  activeTool={activeTool}
+                  onLocalDragMove={handleLocalDragMove}
+                  onLocalDragEnd={handleLocalDragEnd}
+                />
+              );
+            }
+
             return (
               <StickyItem
                 key={item.id}
@@ -638,7 +1035,7 @@ export function BoardCanvas({
                 isEditing={editingId === item.id}
                 onSelect={onSelect}
                 onItemClick={onItemClick}
-                onDblClick={handleStickyDblClick}
+                onDblClick={handleTextDblClick}
                 boardId={boardId}
                 uid={uid}
                 isRemoteDragging={!!remoteEntry}
@@ -648,6 +1045,32 @@ export function BoardCanvas({
               />
             );
           })}
+
+          {/* Frame draw preview while dragging to create */}
+          {frameDrawRect && (
+            <Rect
+              x={frameDrawRect.x}
+              y={frameDrawRect.y}
+              width={frameDrawRect.w}
+              height={frameDrawRect.h}
+              fill="rgba(99,102,241,0.06)"
+              stroke="#6366f1"
+              strokeWidth={2}
+              dash={[8, 4]}
+              listening={false}
+            />
+          )}
+
+          {/* Transformer for resize handles on selected frames */}
+          <Transformer
+            ref={transformerRef}
+            rotateEnabled={false}
+            keepRatio={false}
+            boundBoxFunc={(oldBox, newBox) => {
+              if (newBox.width < FRAME_MIN_SIZE || newBox.height < FRAME_MIN_SIZE) return oldBox;
+              return newBox;
+            }}
+          />
         </Layer>
         {/* Ephemeral layer — redraws at cursor frequency without touching board objects */}
         <Layer listening={false}>
@@ -669,7 +1092,7 @@ export function BoardCanvas({
         </Layer>
       </Stage>
 
-      {/* HTML textarea overlay for editing stickies only; positioned using pan/zoom */}
+      {/* HTML textarea overlay for editing stickies; positioned using pan/zoom */}
       {editingItem && editingId === editingItem.id && editingItem.type === "sticky" && (
         <textarea
             ref={textareaRef}
@@ -696,6 +1119,75 @@ export function BoardCanvas({
             }}
             aria-label="Edit sticky text"
           />
+      )}
+
+      {/* HTML textarea overlay for editing standalone text items */}
+      {editingItem && editingId === editingItem.id && editingItem.type === "text" && (() => {
+        const displayX = (effectiveItemsById[editingItem.id]?.x ?? editingItem.x) * stageScale + stagePos.x;
+        const displayY = (effectiveItemsById[editingItem.id]?.y ?? editingItem.y) * stageScale + stagePos.y;
+        const fs = Math.max(10, (editingItem.fontSize ?? 16) * stageScale);
+        return (
+          <textarea
+            ref={textareaRef}
+            className="absolute resize-none outline-none z-50 font-sans box-border overflow-hidden"
+            style={{
+              left: displayX,
+              top: displayY,
+              width: (editingItem.width ?? 200) * stageScale,
+              minHeight: fs * 1.6,
+              fontSize: fs,
+              lineHeight: 1.4,
+              color: editingItem.fill ?? "#1c1917",
+              background: "rgba(255,255,255,0.85)",
+              borderRadius: 3,
+              padding: `${2 * stageScale}px ${4 * stageScale}px`,
+            }}
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
+            onBlur={() => commitEdit(editingId)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                commitEdit(editingId);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancelEdit();
+              }
+            }}
+            aria-label="Edit text"
+          />
+        );
+      })()}
+
+      {/* HTML input overlay for editing frame title */}
+      {frameTitleEditItem && frameTitleEditId === frameTitleEditItem.id && (
+        <input
+          ref={frameTitleInputRef}
+          type="text"
+          className="absolute outline-none z-50 font-sans font-semibold text-white px-2 box-border"
+          style={{
+            left: (effectiveItemsById[frameTitleEditItem.id]?.x ?? frameTitleEditItem.x) * stageScale + stagePos.x,
+            top: (effectiveItemsById[frameTitleEditItem.id]?.y ?? frameTitleEditItem.y) * stageScale + stagePos.y,
+            width: (frameTitleEditItem.width ?? 300) * stageScale,
+            height: FRAME_LABEL_H * stageScale,
+            backgroundColor: (frameTitleEditItem.fill ?? "#6366f1") + "e6",
+            fontSize: Math.max(10, 13 * stageScale),
+            borderRadius: `${4 * stageScale}px ${4 * stageScale}px 0 0`,
+          }}
+          value={frameTitleValue}
+          onChange={(e) => setFrameTitleValue(e.target.value)}
+          onBlur={() => commitFrameTitle(frameTitleEditId)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitFrameTitle(frameTitleEditId);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              setFrameTitleEditId(null);
+            }
+          }}
+          aria-label="Edit frame title"
+        />
       )}
     </div>
   );

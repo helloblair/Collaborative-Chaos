@@ -28,6 +28,18 @@ const FILL_COLORS = [
   "#FFD7D7", // blush
 ];
 
+const TEXT_COLORS = [
+  "#1c1917", // near-black (default)
+  "#374151", // gray
+  "#1e40af", // blue
+  "#166534", // green
+  "#9a3412", // orange
+  "#7e22ce", // purple
+  "#be123c", // rose
+];
+
+const FONT_SIZES = [12, 16, 20, 28, 40];
+
 const STALE_PRESENCE_MS = 20000;
 
 type Presence = {
@@ -74,7 +86,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
-  const [activeTool, setActiveTool] = useState<"select" | "connect">("select");
+  const [activeTool, setActiveTool] = useState<"select" | "connect" | "frame">("select");
+  const [pendingFrameTitleId, setPendingFrameTitleId] = useState<string | null>(null);
+  const [pendingTextEditId, setPendingTextEditId] = useState<string | null>(null);
   const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
   const [lastBoardClick, setLastBoardClick] = useState<{ x: number; y: number } | null>(null);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
@@ -183,16 +197,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         const items: Record<string, BoardItem> = {};
         snapshot.docs.forEach((d) => {
           const data = d.data();
-          const type = data.type === "rect" ? "rect" : "sticky";
+          const rawType = data.type;
+          const type = rawType === "rect" ? "rect" : rawType === "frame" ? "frame" : rawType === "text" ? "text" : "sticky";
           items[d.id] = {
             id: d.id,
             type,
             x: data.x ?? 0,
             y: data.y ?? 0,
             text: data.text ?? "",
+            title: data.title ?? "",
             width: data.width,
             height: data.height,
             fill: data.fill,
+            fontSize: data.fontSize,
             createdBy: data.createdBy ?? "",
             updatedAt: data.updatedAt,
           };
@@ -419,6 +436,100 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     }
   }, [boardId, selectedId]);
 
+  const handleCreateFrame = useCallback(
+    async (x: number, y: number, w: number, h: number) => {
+      if (!uid || typeof uid !== "string") return;
+      try {
+        const itemsRef = collection(db, "boards", boardId, "items");
+        const docRef = await addDoc(itemsRef, {
+          type: "frame",
+          x: Math.round(x),
+          y: Math.round(y),
+          width: Math.round(w),
+          height: Math.round(h),
+          title: "Frame",
+          fill: "#6366f1",
+          createdBy: uid,
+          updatedAt: serverTimestamp(),
+        });
+        setActiveTool("select");
+        setPendingFrameTitleId(docRef.id);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to create frame";
+        setCreateError(msg);
+      }
+    },
+    [boardId, uid]
+  );
+
+  const handleAddText = useCallback(async () => {
+    if (!uid || typeof uid !== "string") return;
+    setCreateError(null);
+    setIsCreating(true);
+    const spawnX = Math.round(viewportSize.width / 2 - 100);
+    const spawnY = Math.round(viewportSize.height / 2 - 20);
+    try {
+      const itemsRef = collection(db, "boards", boardId, "items");
+      const docRef = await addDoc(itemsRef, {
+        type: "text",
+        x: spawnX,
+        y: spawnY,
+        width: 200,
+        text: "",
+        fontSize: 16,
+        fill: "#1c1917",
+        createdBy: uid,
+        updatedAt: serverTimestamp(),
+      });
+      setPendingTextEditId(docRef.id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create text";
+      setCreateError(msg);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+
+  const handleFontSizeChange = useCallback(async (size: number) => {
+    if (!selectedId) return;
+    try {
+      const itemRef = doc(collection(db, "boards", boardId, "items"), selectedId);
+      await updateDoc(itemRef, { fontSize: size, updatedAt: serverTimestamp() });
+    } catch {
+      // Firestore sync will reconcile
+    }
+  }, [boardId, selectedId]);
+
+  const handleFrameTitleCommit = useCallback(
+    async (id: string, title: string) => {
+      try {
+        const itemRef = doc(collection(db, "boards", boardId, "items"), id);
+        await updateDoc(itemRef, { title, updatedAt: serverTimestamp() });
+      } catch {
+        // Firestore sync will reconcile
+      }
+    },
+    [boardId]
+  );
+
+  const handleFrameTransform = useCallback(
+    async (id: string, x: number, y: number, width: number, height: number) => {
+      try {
+        const itemRef = doc(collection(db, "boards", boardId, "items"), id);
+        await updateDoc(itemRef, {
+          x: Math.round(x),
+          y: Math.round(y),
+          width: Math.round(width),
+          height: Math.round(height),
+          updatedAt: serverTimestamp(),
+        });
+      } catch {
+        // Firestore sync will reconcile
+      }
+    },
+    [boardId]
+  );
+
   const handleSignOut = useCallback(async () => {
     await signOut(auth);
     router.push("/");
@@ -448,8 +559,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         setSelectedConnectorId(null);
         return;
       }
-      // Connect mode
+      // Connect mode — frames are not connectable
       if (typeof uid !== "string" || !uid) return;
+      if (boardItems[id]?.type === "frame") return;
       if (!connectSourceId) {
         setConnectSourceId(id);
       } else if (connectSourceId === id) {
@@ -472,7 +584,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         setConnectSourceId(null);
       }
     },
-    [activeTool, connectSourceId, boardId, uid]
+    [activeTool, connectSourceId, boardId, uid, boardItems]
   );
 
   // Handle connector selection
@@ -651,6 +763,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       if (e.key === "Escape") {
         if (activeTool === "connect") {
           setConnectSourceId(null);
+        }
+        if (activeTool !== "select") {
           setActiveTool("select");
         }
         setSelectedConnectorId(null);
@@ -713,7 +827,12 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   }, [presenceMap, uid]);
   const canvasWidth = Math.max(0, viewportSize.width - SIDEBAR_WIDTH);
   const selectedItem = selectedId ? boardItems[selectedId] : null;
-  const selectedItemFill = selectedItem?.fill ?? (selectedItem?.type === "rect" ? "#C6DEF1" : "#C9E4DE");
+  const selectedItemFill = selectedItem?.fill ?? (
+    selectedItem?.type === "text" ? "#1c1917" :
+    selectedItem?.type === "rect" ? "#C6DEF1" :
+    selectedItem?.type === "frame" ? "#6366f1" : "#C9E4DE"
+  );
+  const selectedItemFontSize = selectedItem?.fontSize ?? 16;
 
   return (
     <main
@@ -740,7 +859,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             <button
               type="button"
               onClick={handleAddSticky}
-              disabled={isCreating || activeTool === "connect"}
+              disabled={isCreating || activeTool !== "select"}
               className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
               aria-label="Add sticky note"
             >
@@ -749,11 +868,39 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             <button
               type="button"
               onClick={handleAddRect}
-              disabled={isCreating || activeTool === "connect"}
+              disabled={isCreating || activeTool !== "select"}
               className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
               aria-label="Add rectangle"
             >
               {isCreating ? "Creating…" : "Add Rectangle"}
+            </button>
+            <button
+              type="button"
+              onClick={handleAddText}
+              disabled={isCreating || activeTool !== "select"}
+              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
+              aria-label="Add text"
+            >
+              {isCreating ? "Creating…" : "Add Text"}
+            </button>
+
+            {/* Frame tool toggle */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = activeTool === "frame" ? "select" : "frame";
+                setActiveTool(next);
+                setSelectedId(null);
+                setSelectedConnectorId(null);
+              }}
+              className={`w-full rounded-lg px-3 py-2 border font-medium text-sm transition-colors text-left ${
+                activeTool === "frame"
+                  ? "bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700"
+                  : "bg-white border-gray-200 hover:bg-gray-100 text-gray-700"
+              }`}
+              aria-label="Add frame"
+            >
+              {activeTool === "frame" ? "Click & drag…" : "Frame"}
             </button>
 
             {/* Connect tool toggle */}
@@ -783,23 +930,65 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             {selectedId && activeTool === "select" && (
               <>
                 <hr className="border-gray-200" />
-                <label className="text-xs text-gray-500 font-medium px-1">Color</label>
-                <div className="flex flex-wrap gap-1.5 px-1">
-                  {FILL_COLORS.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => handleColorChange(color)}
-                      className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
-                      style={{
-                        background: color,
-                        borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
-                        boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
-                      }}
-                      aria-label={`Set color ${color}`}
-                    />
-                  ))}
-                </div>
+                {selectedItem?.type === "text" ? (
+                  <>
+                    <label className="text-xs text-gray-500 font-medium px-1">Text Color</label>
+                    <div className="flex flex-wrap gap-1.5 px-1">
+                      {TEXT_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => handleColorChange(color)}
+                          className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
+                          style={{
+                            background: color,
+                            borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
+                            boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
+                          }}
+                          aria-label={`Set text color ${color}`}
+                        />
+                      ))}
+                    </div>
+                    <label className="text-xs text-gray-500 font-medium px-1">Size</label>
+                    <div className="flex flex-wrap gap-1 px-1">
+                      {FONT_SIZES.map((size) => (
+                        <button
+                          key={size}
+                          type="button"
+                          onClick={() => handleFontSizeChange(size)}
+                          className={`rounded px-2 py-0.5 text-xs font-medium border transition-colors ${
+                            selectedItemFontSize === size
+                              ? "bg-gray-800 text-white border-gray-800"
+                              : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
+                          }`}
+                          aria-label={`Font size ${size}`}
+                        >
+                          {size}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="text-xs text-gray-500 font-medium px-1">Color</label>
+                    <div className="flex flex-wrap gap-1.5 px-1">
+                      {FILL_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => handleColorChange(color)}
+                          className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
+                          style={{
+                            background: color,
+                            borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
+                            boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
+                          }}
+                          aria-label={`Set color ${color}`}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={handleDeleteItem}
@@ -888,6 +1077,11 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             selectedConnectorId={selectedConnectorId}
             onSelectConnector={handleSelectConnector}
             onBgClick={handleBgClick}
+            onFrameCreate={handleCreateFrame}
+            onFrameTitleCommit={handleFrameTitleCommit}
+            onItemTransform={handleFrameTransform}
+            frameTitleEditingId={pendingFrameTitleId}
+            textEditingId={pendingTextEditId}
           />
         )}
       </div>
