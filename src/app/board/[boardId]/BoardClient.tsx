@@ -85,6 +85,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [clipboardItems, setClipboardItems] = useState<BoardItem[]>([]);
+  const viewportRef = useRef<{ pos: { x: number; y: number }; scale: number }>({ pos: { x: 0, y: 0 }, scale: 1 });
+  const pasteOffsetCountRef = useRef(0);
   const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<"select" | "connect" | "frame">("select");
   const [pendingFrameTitleId, setPendingFrameTitleId] = useState<string | null>(null);
@@ -459,6 +462,89 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     }
   }, [boardId, selectedIds, connectors]);
 
+  // Build a Firestore-safe item payload (no id/updatedAt fields)
+  const itemPayload = useCallback(
+    (item: BoardItem, overrides: { x: number; y: number }) => ({
+      type: item.type,
+      x: overrides.x,
+      y: overrides.y,
+      ...(item.text !== undefined && { text: item.text }),
+      ...(item.title !== undefined && { title: item.title }),
+      ...(item.width !== undefined && { width: item.width }),
+      ...(item.height !== undefined && { height: item.height }),
+      ...(item.fill !== undefined && { fill: item.fill }),
+      ...(item.fontSize !== undefined && { fontSize: item.fontSize }),
+      ...(item.rotation !== undefined && { rotation: item.rotation }),
+      createdBy: uid as string,
+      updatedAt: serverTimestamp(),
+    }),
+    [uid]
+  );
+
+  // Duplicate selected items (+20px offset), then select the new copies
+  const handleDuplicate = useCallback(async () => {
+    if (selectedIds.length === 0 || !uid || typeof uid !== "string") return;
+    const items = selectedIds.map((id) => boardItems[id]).filter(Boolean) as BoardItem[];
+    if (items.length === 0) return;
+    try {
+      const batch = writeBatch(db);
+      const newIds: string[] = [];
+      for (const item of items) {
+        const newRef = doc(collection(db, "boards", boardId, "items"));
+        batch.set(newRef, itemPayload(item, { x: Math.round(item.x + 20), y: Math.round(item.y + 20) }));
+        newIds.push(newRef.id);
+      }
+      await batch.commit();
+      setSelectedIds(newIds);
+    } catch {
+      // Firestore sync will reconcile
+    }
+  }, [boardId, uid, selectedIds, boardItems, itemPayload]);
+
+  // Copy selected items to local clipboard; resets paste stagger
+  const handleCopy = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const items = selectedIds.map((id) => boardItems[id]).filter(Boolean) as BoardItem[];
+    setClipboardItems(items);
+    pasteOffsetCountRef.current = 0;
+  }, [selectedIds, boardItems]);
+
+  // Paste clipboard items centered at current viewport center, staggered on repeat pastes
+  const handlePaste = useCallback(async () => {
+    if (clipboardItems.length === 0 || !uid || typeof uid !== "string") return;
+    const { pos, scale } = viewportRef.current;
+    const vpW = Math.max(0, viewportSize.width - SIDEBAR_WIDTH);
+    const vpCenterX = (vpW / 2 - pos.x) / scale;
+    const vpCenterY = (viewportSize.height / 2 - pos.y) / scale;
+
+    const minX = Math.min(...clipboardItems.map((i) => i.x));
+    const minY = Math.min(...clipboardItems.map((i) => i.y));
+    const maxX = Math.max(...clipboardItems.map((i) => i.x + (i.width ?? 160)));
+    const maxY = Math.max(...clipboardItems.map((i) => i.y + (i.height ?? 160)));
+    const clipCenterX = (minX + maxX) / 2;
+    const clipCenterY = (minY + maxY) / 2;
+
+    const step = pasteOffsetCountRef.current;
+    const offsetPx = (step + 1) * 20;
+    const dx = vpCenterX - clipCenterX + offsetPx;
+    const dy = vpCenterY - clipCenterY + offsetPx;
+
+    try {
+      const batch = writeBatch(db);
+      const newIds: string[] = [];
+      for (const item of clipboardItems) {
+        const newRef = doc(collection(db, "boards", boardId, "items"));
+        batch.set(newRef, itemPayload(item, { x: Math.round(item.x + dx), y: Math.round(item.y + dy) }));
+        newIds.push(newRef.id);
+      }
+      await batch.commit();
+      setSelectedIds(newIds);
+      pasteOffsetCountRef.current = step + 1;
+    } catch {
+      // Firestore sync will reconcile
+    }
+  }, [boardId, uid, clipboardItems, viewportSize, itemPayload]);
+
   // Delete selected connector
   const handleDeleteConnector = useCallback(async () => {
     if (!selectedConnectorId) return;
@@ -796,21 +882,44 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     [uid, myPresencePath]
   );
 
-  // Keyboard: Delete/Backspace to delete selection; Escape to cancel connect mode
+  const handleViewportChange = useCallback(
+    (pos: { x: number; y: number }, scale: number) => {
+      viewportRef.current = { pos, scale };
+    },
+    []
+  );
+
+  // Keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement as HTMLElement | null;
       if (active?.tagName === "TEXTAREA" || active?.tagName === "INPUT") return;
 
+      const mod = e.metaKey || e.ctrlKey;
+
       if (e.key === "Escape") {
         setSelectedIds([]);
-        if (activeTool === "connect") {
-          setConnectSourceId(null);
-        }
-        if (activeTool !== "select") {
-          setActiveTool("select");
-        }
+        if (activeTool === "connect") setConnectSourceId(null);
+        if (activeTool !== "select") setActiveTool("select");
         setSelectedConnectorId(null);
+        return;
+      }
+
+      if (mod && e.key === "d") {
+        e.preventDefault();
+        handleDuplicate();
+        return;
+      }
+
+      if (mod && e.key === "c") {
+        e.preventDefault();
+        handleCopy();
+        return;
+      }
+
+      if (mod && e.key === "v") {
+        e.preventDefault();
+        handlePaste();
         return;
       }
 
@@ -824,7 +933,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedIds, selectedConnectorId, activeTool, handleDeleteItems, handleDeleteConnector]);
+  }, [selectedIds, selectedConnectorId, activeTool, handleDeleteItems, handleDeleteConnector, handleDuplicate, handleCopy, handlePaste]);
 
   // E) Sort items so active/dragged renders on top; stable sort by activeItemId
   const sortedItems = useMemo(() => {
@@ -1135,6 +1244,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             onFrameCreate={handleCreateFrame}
             onFrameTitleCommit={handleFrameTitleCommit}
             onItemTransform={handleFrameTransform}
+            onViewportChange={handleViewportChange}
             frameTitleEditingId={pendingFrameTitleId}
             textEditingId={pendingTextEditId}
           />
