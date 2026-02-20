@@ -210,6 +210,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             height: data.height,
             fill: data.fill,
             fontSize: data.fontSize,
+            rotation: data.rotation,
             createdBy: data.createdBy ?? "",
             updatedAt: data.updatedAt,
           };
@@ -513,7 +514,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   );
 
   const handleFrameTransform = useCallback(
-    async (id: string, x: number, y: number, width: number, height: number) => {
+    async (id: string, x: number, y: number, width: number, height: number, rotation: number) => {
       try {
         const itemRef = doc(collection(db, "boards", boardId, "items"), id);
         await updateDoc(itemRef, {
@@ -521,6 +522,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           y: Math.round(y),
           width: Math.round(width),
           height: Math.round(height),
+          rotation,
           updatedAt: serverTimestamp(),
         });
       } catch {
