@@ -12,13 +12,15 @@ export interface Board {
 
 export type BoardItem = {
   id: string;
-  type: "sticky" | "rect";
+  type: "sticky" | "rect" | "frame" | "text";
   x: number;
   y: number;
   text?: string;
+  title?: string;
   width?: number;
   height?: number;
   fill?: string;
+  fontSize?: number;
   createdBy: string;
   updatedAt?: unknown;
 };
