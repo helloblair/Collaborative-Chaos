@@ -18,6 +18,7 @@ const CURSOR_THROTTLE_MS = 40;
 const STALE_PRESENCE_MS = 20000;
 const FRAME_LABEL_H = 26;
 const FRAME_MIN_SIZE = 80;
+const ITEM_MIN_SIZE = 40;
 
 export type PresenceEntry = {
   name: string;
@@ -134,6 +135,8 @@ type RectItemProps = {
   activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string) => void;
+  onGroupMount: (id: string, node: Konva.Group | null) => void;
+  onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
 };
 
 function RectItem({
@@ -148,15 +151,27 @@ function RectItem({
   activeTool,
   onLocalDragMove,
   onLocalDragEnd,
+  onGroupMount,
+  onTransformEnd,
 }: RectItemProps) {
   const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const groupRef = useRef<Konva.Group | null>(null);
   const w = item.width ?? 200;
   const h = item.height ?? 120;
   const fill = item.fill ?? "#C6DEF1";
+
+  useEffect(() => {
+    onGroupMount(item.id, groupRef.current);
+    return () => { onGroupMount(item.id, null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
   return (
     <Group
+      ref={(node) => { groupRef.current = node; }}
       x={item.x}
       y={item.y}
+      rotation={item.rotation ?? 0}
       draggable={!isRemoteDragging && activeTool === "select"}
       onDragStart={() => onSelect(item.id)}
       onClick={() => {
@@ -170,6 +185,22 @@ function RectItem({
       onDragEnd={(e) => {
         onDragEnd(e.target.x(), e.target.y());
         onLocalDragEnd(item.id);
+      }}
+      onTransformEnd={() => {
+        const node = groupRef.current;
+        if (!node) return;
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        node.scaleX(1);
+        node.scaleY(1);
+        onTransformEnd(
+          item.id,
+          node.x(),
+          node.y(),
+          Math.max(ITEM_MIN_SIZE, Math.round(w * scaleX)),
+          Math.max(ITEM_MIN_SIZE, Math.round(h * scaleY)),
+          node.rotation(),
+        );
       }}
     >
       <Rect
@@ -200,6 +231,8 @@ type StickyItemProps = {
   activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string) => void;
+  onGroupMount: (id: string, node: Konva.Group | null) => void;
+  onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
 };
 
 function StickyItem({
@@ -216,15 +249,27 @@ function StickyItem({
   activeTool,
   onLocalDragMove,
   onLocalDragEnd,
+  onGroupMount,
+  onTransformEnd,
 }: StickyItemProps) {
   const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const groupRef = useRef<Konva.Group | null>(null);
   const w = item.width ?? STICKY_SIZE;
   const h = item.height ?? STICKY_SIZE;
   const fill = item.fill ?? "#C9E4DE";
+
+  useEffect(() => {
+    onGroupMount(item.id, groupRef.current);
+    return () => { onGroupMount(item.id, null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
   return (
     <Group
+      ref={(node) => { groupRef.current = node; }}
       x={item.x}
       y={item.y}
+      rotation={item.rotation ?? 0}
       draggable={!isEditing && !isRemoteDragging && activeTool === "select"}
       onDragStart={() => onSelect(item.id)}
       onClick={() => {
@@ -239,6 +284,22 @@ function StickyItem({
       onDragEnd={(e) => {
         onDragEnd(e.target.x(), e.target.y());
         onLocalDragEnd(item.id);
+      }}
+      onTransformEnd={() => {
+        const node = groupRef.current;
+        if (!node) return;
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        node.scaleX(1);
+        node.scaleY(1);
+        onTransformEnd(
+          item.id,
+          node.x(),
+          node.y(),
+          Math.max(ITEM_MIN_SIZE, Math.round(w * scaleX)),
+          Math.max(ITEM_MIN_SIZE, Math.round(h * scaleY)),
+          node.rotation(),
+        );
       }}
     >
       <Rect
@@ -284,6 +345,8 @@ type TextItemProps = {
   activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string) => void;
+  onGroupMount: (id: string, node: Konva.Group | null) => void;
+  onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
 };
 
 function TextItem({
@@ -300,13 +363,22 @@ function TextItem({
   activeTool,
   onLocalDragMove,
   onLocalDragEnd,
+  onGroupMount,
+  onTransformEnd,
 }: TextItemProps) {
   const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const groupRef = useRef<Konva.Group | null>(null);
   const textNodeRef = useRef<Konva.Text | null>(null);
   const [textH, setTextH] = useState(24);
   const w = item.width ?? 200;
   const fontSize = item.fontSize ?? 16;
   const fill = item.fill ?? "#1c1917";
+
+  useEffect(() => {
+    onGroupMount(item.id, groupRef.current);
+    return () => { onGroupMount(item.id, null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
 
   // Track rendered text height after each render so the hit/selection rect stays accurate
   useEffect(() => {
@@ -319,8 +391,10 @@ function TextItem({
 
   return (
     <Group
+      ref={(node) => { groupRef.current = node; }}
       x={item.x}
       y={item.y}
+      rotation={item.rotation ?? 0}
       draggable={!isEditing && !isRemoteDragging && activeTool === "select"}
       onDragStart={() => onSelect(item.id)}
       onClick={() => {
@@ -335,6 +409,22 @@ function TextItem({
       onDragEnd={(e) => {
         onDragEnd(e.target.x(), e.target.y());
         onLocalDragEnd(item.id);
+      }}
+      onTransformEnd={() => {
+        const node = groupRef.current;
+        if (!node) return;
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        node.scaleX(1);
+        node.scaleY(1);
+        onTransformEnd(
+          item.id,
+          node.x(),
+          node.y(),
+          Math.max(ITEM_MIN_SIZE, Math.round(w * scaleX)),
+          Math.max(ITEM_MIN_SIZE, Math.round(textH * scaleY)),
+          node.rotation(),
+        );
       }}
     >
       {/* Transparent hit area + selection ring */}
@@ -377,7 +467,7 @@ type FrameItemProps = {
   onLocalDragEnd: (id: string) => void;
   onDblClick: (item: BoardItem) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
-  onTransformEnd: (id: string, x: number, y: number, width: number, height: number) => void;
+  onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
 };
 
 function FrameItem({
@@ -437,7 +527,8 @@ function FrameItem({
           node.x(),
           node.y(),
           Math.max(FRAME_MIN_SIZE, Math.round(w * scaleX)),
-          Math.max(FRAME_MIN_SIZE, Math.round(h * scaleY))
+          Math.max(FRAME_MIN_SIZE, Math.round(h * scaleY)),
+          0,
         );
       }}
     >
@@ -500,7 +591,7 @@ export type BoardCanvasProps = {
   onBgClick?: () => void;
   onFrameCreate?: (x: number, y: number, w: number, h: number) => void;
   onFrameTitleCommit?: (id: string, title: string) => void;
-  onItemTransform?: (id: string, x: number, y: number, width: number, height: number) => void;
+  onItemTransform?: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
   frameTitleEditingId?: string | null;
   textEditingId?: string | null;
 };
@@ -560,27 +651,26 @@ export function BoardCanvas({
   const onFrameCreateRef = useRef(onFrameCreate);
   onFrameCreateRef.current = onFrameCreate;
 
-  // Transformer and frame node refs
-  const frameNodesRef = useRef<Map<string, Konva.Group>>(new Map());
+  // Transformer and item node refs (all types)
+  const itemNodesRef = useRef<Map<string, Konva.Group>>(new Map());
   const transformerRef = useRef<Konva.Transformer | null>(null);
 
   const handleGroupMount = useCallback((id: string, node: Konva.Group | null) => {
     if (node) {
-      frameNodesRef.current.set(id, node);
+      itemNodesRef.current.set(id, node);
     } else {
-      frameNodesRef.current.delete(id);
+      itemNodesRef.current.delete(id);
     }
   }, []);
 
-  // Sync Transformer to selected frame
+  // Sync Transformer to the currently selected item
   const selectedItem = useMemo(() => items.find((i) => i.id === selectedId), [items, selectedId]);
-  const selectedIsFrame = selectedItem?.type === "frame";
 
   useEffect(() => {
     const tr = transformerRef.current;
     if (!tr) return;
-    if (selectedIsFrame && selectedId) {
-      const node = frameNodesRef.current.get(selectedId);
+    if (selectedId) {
+      const node = itemNodesRef.current.get(selectedId);
       if (node) {
         tr.nodes([node]);
         tr.getLayer()?.batchDraw();
@@ -591,7 +681,7 @@ export function BoardCanvas({
       tr.nodes([]);
       tr.getLayer()?.batchDraw();
     }
-  }, [selectedId, selectedIsFrame]);
+  }, [selectedId]);
 
   // Trigger frame title editing when parent requests it
   const prevFrameTitleEditingIdRef = useRef<string | null>(null);
@@ -954,7 +1044,7 @@ export function BoardCanvas({
                 onLocalDragEnd={handleLocalDragEnd}
                 onDblClick={handleFrameDblClick}
                 onGroupMount={handleGroupMount}
-                onTransformEnd={(id, x, y, w, h) => onItemTransform?.(id, x, y, w, h)}
+                onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
               />
             );
           })}
@@ -1001,6 +1091,8 @@ export function BoardCanvas({
                   activeTool={activeTool}
                   onLocalDragMove={handleLocalDragMove}
                   onLocalDragEnd={handleLocalDragEnd}
+                  onGroupMount={handleGroupMount}
+                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
                 />
               );
             }
@@ -1022,6 +1114,8 @@ export function BoardCanvas({
                   activeTool={activeTool}
                   onLocalDragMove={handleLocalDragMove}
                   onLocalDragEnd={handleLocalDragEnd}
+                  onGroupMount={handleGroupMount}
+                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
                 />
               );
             }
@@ -1042,6 +1136,8 @@ export function BoardCanvas({
                 activeTool={activeTool}
                 onLocalDragMove={handleLocalDragMove}
                 onLocalDragEnd={handleLocalDragEnd}
+                onGroupMount={handleGroupMount}
+                onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
               />
             );
           })}
@@ -1061,13 +1157,14 @@ export function BoardCanvas({
             />
           )}
 
-          {/* Transformer for resize handles on selected frames */}
+          {/* Transformer for move/resize/rotate on all selected items */}
           <Transformer
             ref={transformerRef}
-            rotateEnabled={false}
+            rotateEnabled={selectedItem?.type !== "frame"}
             keepRatio={false}
             boundBoxFunc={(oldBox, newBox) => {
-              if (newBox.width < FRAME_MIN_SIZE || newBox.height < FRAME_MIN_SIZE) return oldBox;
+              const minSize = selectedItem?.type === "frame" ? FRAME_MIN_SIZE : ITEM_MIN_SIZE;
+              if (newBox.width < minSize || newBox.height < minSize) return oldBox;
               return newBox;
             }}
           />

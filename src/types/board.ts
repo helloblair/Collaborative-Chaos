@@ -21,6 +21,7 @@ export type BoardItem = {
   height?: number;
   fill?: string;
   fontSize?: number;
+  rotation?: number;
   createdBy: string;
   updatedAt?: unknown;
 };
