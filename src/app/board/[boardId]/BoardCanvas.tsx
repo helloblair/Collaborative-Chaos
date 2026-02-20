@@ -74,6 +74,18 @@ function getEdgePoint(
   }
 }
 
+function rectsIntersect(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number }
+): boolean {
+  return (
+    a.x < b.x + b.w &&
+    a.x + a.w > b.x &&
+    a.y < b.y + b.h &&
+    a.y + a.h > b.y
+  );
+}
+
 // ─── ConnectorLine sub-component ─────────────────────────────────────────────
 
 type ConnectorLineProps = {
@@ -126,22 +138,25 @@ function ConnectorLine({ conn, fromItem, toItem, isSelected, onSelect }: Connect
 type RectItemProps = {
   item: BoardItem;
   isSelected: boolean;
+  isInMultiSelect: boolean;
   isConnectSource: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, shiftKey?: boolean) => void;
   onItemClick?: (id: string) => void;
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
   activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
-  onLocalDragEnd: (id: string) => void;
+  onLocalDragEnd: (id: string, x: number, y: number) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
   onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
+  onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
 function RectItem({
   item,
   isSelected,
+  isInMultiSelect,
   isConnectSource,
   onSelect,
   onItemClick,
@@ -153,6 +168,7 @@ function RectItem({
   onLocalDragEnd,
   onGroupMount,
   onTransformEnd,
+  onItemDragStart,
 }: RectItemProps) {
   const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
   const groupRef = useRef<Konva.Group | null>(null);
@@ -173,9 +189,12 @@ function RectItem({
       y={item.y}
       rotation={item.rotation ?? 0}
       draggable={!isRemoteDragging && activeTool === "select"}
-      onDragStart={() => onSelect(item.id)}
-      onClick={() => {
-        if (activeTool !== "connect") onSelect(item.id);
+      onDragStart={(e) => {
+        if (!isInMultiSelect) onSelect(item.id, false);
+        onItemDragStart(item.id, e.target.x(), e.target.y());
+      }}
+      onClick={(e) => {
+        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
       onDragMove={(e) => {
@@ -183,8 +202,10 @@ function RectItem({
         onLocalDragMove(item.id, e.target.x(), e.target.y());
       }}
       onDragEnd={(e) => {
-        onDragEnd(e.target.x(), e.target.y());
-        onLocalDragEnd(item.id);
+        const fx = e.target.x();
+        const fy = e.target.y();
+        onDragEnd(fx, fy);
+        onLocalDragEnd(item.id, fx, fy);
       }}
       onTransformEnd={() => {
         const node = groupRef.current;
@@ -220,9 +241,10 @@ function RectItem({
 type StickyItemProps = {
   item: BoardItem;
   isSelected: boolean;
+  isInMultiSelect: boolean;
   isConnectSource: boolean;
   isEditing: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, shiftKey?: boolean) => void;
   onItemClick?: (id: string) => void;
   onDblClick: (item: BoardItem) => void;
   boardId: string;
@@ -230,14 +252,16 @@ type StickyItemProps = {
   isRemoteDragging: boolean;
   activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
-  onLocalDragEnd: (id: string) => void;
+  onLocalDragEnd: (id: string, x: number, y: number) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
   onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
+  onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
 function StickyItem({
   item,
   isSelected,
+  isInMultiSelect,
   isConnectSource,
   isEditing,
   onSelect,
@@ -251,6 +275,7 @@ function StickyItem({
   onLocalDragEnd,
   onGroupMount,
   onTransformEnd,
+  onItemDragStart,
 }: StickyItemProps) {
   const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
   const groupRef = useRef<Konva.Group | null>(null);
@@ -271,9 +296,12 @@ function StickyItem({
       y={item.y}
       rotation={item.rotation ?? 0}
       draggable={!isEditing && !isRemoteDragging && activeTool === "select"}
-      onDragStart={() => onSelect(item.id)}
-      onClick={() => {
-        if (activeTool !== "connect") onSelect(item.id);
+      onDragStart={(e) => {
+        if (!isInMultiSelect) onSelect(item.id, false);
+        onItemDragStart(item.id, e.target.x(), e.target.y());
+      }}
+      onClick={(e) => {
+        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
       onDblClick={() => activeTool !== "connect" && onDblClick(item)}
@@ -282,8 +310,10 @@ function StickyItem({
         onLocalDragMove(item.id, e.target.x(), e.target.y());
       }}
       onDragEnd={(e) => {
-        onDragEnd(e.target.x(), e.target.y());
-        onLocalDragEnd(item.id);
+        const fx = e.target.x();
+        const fy = e.target.y();
+        onDragEnd(fx, fy);
+        onLocalDragEnd(item.id, fx, fy);
       }}
       onTransformEnd={() => {
         const node = groupRef.current;
@@ -334,9 +364,10 @@ function StickyItem({
 type TextItemProps = {
   item: BoardItem;
   isSelected: boolean;
+  isInMultiSelect: boolean;
   isConnectSource: boolean;
   isEditing: boolean;
-  onSelect: (id: string) => void;
+  onSelect: (id: string, shiftKey?: boolean) => void;
   onItemClick?: (id: string) => void;
   onDblClick: (item: BoardItem) => void;
   boardId: string;
@@ -344,14 +375,16 @@ type TextItemProps = {
   isRemoteDragging: boolean;
   activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
-  onLocalDragEnd: (id: string) => void;
+  onLocalDragEnd: (id: string, x: number, y: number) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
   onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
+  onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
 function TextItem({
   item,
   isSelected,
+  isInMultiSelect,
   isConnectSource,
   isEditing,
   onSelect,
@@ -365,6 +398,7 @@ function TextItem({
   onLocalDragEnd,
   onGroupMount,
   onTransformEnd,
+  onItemDragStart,
 }: TextItemProps) {
   const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
   const groupRef = useRef<Konva.Group | null>(null);
@@ -396,9 +430,12 @@ function TextItem({
       y={item.y}
       rotation={item.rotation ?? 0}
       draggable={!isEditing && !isRemoteDragging && activeTool === "select"}
-      onDragStart={() => onSelect(item.id)}
-      onClick={() => {
-        if (activeTool !== "connect") onSelect(item.id);
+      onDragStart={(e) => {
+        if (!isInMultiSelect) onSelect(item.id, false);
+        onItemDragStart(item.id, e.target.x(), e.target.y());
+      }}
+      onClick={(e) => {
+        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
       onDblClick={() => activeTool !== "connect" && onDblClick(item)}
@@ -407,8 +444,10 @@ function TextItem({
         onLocalDragMove(item.id, e.target.x(), e.target.y());
       }}
       onDragEnd={(e) => {
-        onDragEnd(e.target.x(), e.target.y());
-        onLocalDragEnd(item.id);
+        const fx = e.target.x();
+        const fy = e.target.y();
+        onDragEnd(fx, fy);
+        onLocalDragEnd(item.id, fx, fy);
       }}
       onTransformEnd={() => {
         const node = groupRef.current;
@@ -458,21 +497,24 @@ function TextItem({
 type FrameItemProps = {
   item: BoardItem;
   isSelected: boolean;
-  onSelect: (id: string) => void;
+  isInMultiSelect: boolean;
+  onSelect: (id: string, shiftKey?: boolean) => void;
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
   activeTool: "select" | "connect" | "frame";
   onLocalDragMove: (id: string, x: number, y: number) => void;
-  onLocalDragEnd: (id: string) => void;
+  onLocalDragEnd: (id: string, x: number, y: number) => void;
   onDblClick: (item: BoardItem) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
   onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
+  onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
 function FrameItem({
   item,
   isSelected,
+  isInMultiSelect,
   onSelect,
   boardId,
   uid,
@@ -483,6 +525,7 @@ function FrameItem({
   onDblClick,
   onGroupMount,
   onTransformEnd,
+  onItemDragStart,
 }: FrameItemProps) {
   const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
   const groupRef = useRef<Konva.Group | null>(null);
@@ -502,9 +545,12 @@ function FrameItem({
       x={item.x}
       y={item.y}
       draggable={!isRemoteDragging && activeTool === "select"}
-      onDragStart={() => onSelect(item.id)}
-      onClick={() => {
-        if (activeTool === "select") onSelect(item.id);
+      onDragStart={(e) => {
+        if (!isInMultiSelect) onSelect(item.id, false);
+        onItemDragStart(item.id, e.target.x(), e.target.y());
+      }}
+      onClick={(e) => {
+        if (activeTool === "select") onSelect(item.id, e.evt.shiftKey);
       }}
       onDblClick={() => activeTool === "select" && onDblClick(item)}
       onDragMove={(e) => {
@@ -512,8 +558,10 @@ function FrameItem({
         onLocalDragMove(item.id, e.target.x(), e.target.y());
       }}
       onDragEnd={(e) => {
-        onDragEnd(e.target.x(), e.target.y());
-        onLocalDragEnd(item.id);
+        const fx = e.target.x();
+        const fy = e.target.y();
+        onDragEnd(fx, fy);
+        onLocalDragEnd(item.id, fx, fy);
       }}
       onTransformEnd={() => {
         const node = groupRef.current;
@@ -574,8 +622,9 @@ export type BoardCanvasProps = {
   width: number;
   height: number;
   items: BoardItem[];
-  selectedId: string | null;
-  onSelect: (id: string) => void;
+  selectedIds: string[];
+  onSelect: (id: string, shiftKey?: boolean) => void;
+  onSelectMultiple: (ids: string[]) => void;
   onItemClick?: (id: string) => void;
   onTextCommit: (id: string, nextText: string) => void;
   presenceMap?: Record<string, PresenceEntry>;
@@ -592,6 +641,7 @@ export type BoardCanvasProps = {
   onFrameCreate?: (x: number, y: number, w: number, h: number) => void;
   onFrameTitleCommit?: (id: string, title: string) => void;
   onItemTransform?: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
+  onItemsMove?: (moves: Array<{ id: string; x: number; y: number }>) => void;
   frameTitleEditingId?: string | null;
   textEditingId?: string | null;
 };
@@ -600,8 +650,9 @@ export function BoardCanvas({
   width,
   height,
   items,
-  selectedId,
+  selectedIds,
   onSelect,
+  onSelectMultiple,
   onItemClick,
   onTextCommit,
   presenceMap = {},
@@ -618,6 +669,7 @@ export function BoardCanvas({
   onFrameCreate,
   onFrameTitleCommit,
   onItemTransform,
+  onItemsMove,
   frameTitleEditingId = null,
   textEditingId = null,
 }: BoardCanvasProps) {
@@ -630,6 +682,7 @@ export function BoardCanvas({
   const [frameDrawRect, setFrameDrawRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [frameTitleEditId, setFrameTitleEditId] = useState<string | null>(null);
   const [frameTitleValue, setFrameTitleValue] = useState("");
+  const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
   const stageRef = useRef<Konva.Stage | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -643,17 +696,44 @@ export function BoardCanvas({
   const frameDrawRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
   frameDrawRectRef.current = frameDrawRect;
 
-  // Refs for stable callbacks
+  // Selection box refs
+  const selectionBoxStartRef = useRef<{ x: number; y: number } | null>(null);
+  const selectionBoxRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  selectionBoxRef.current = selectionBox;
+
+  // Space key for panning in select mode
+  const spaceHeldRef = useRef(false);
+
+  // Group drag state
+  const groupDragRef = useRef<{
+    sourceId: string;
+    sourceStartX: number;
+    sourceStartY: number;
+    others: Array<{ id: string; startX: number; startY: number }>;
+  } | null>(null);
+
+  // Stable refs for callbacks used in mouseup
   const activeToolRef = useRef(activeTool);
   activeToolRef.current = activeTool;
   const connectSourceIdRef = useRef(connectSourceId);
   connectSourceIdRef.current = connectSourceId;
   const onFrameCreateRef = useRef(onFrameCreate);
   onFrameCreateRef.current = onFrameCreate;
+  const onBgClickRef = useRef(onBgClick);
+  onBgClickRef.current = onBgClick;
+  const onSelectMultipleRef = useRef(onSelectMultiple);
+  onSelectMultipleRef.current = onSelectMultiple;
+  const onItemsMoveRef = useRef(onItemsMove);
+  onItemsMoveRef.current = onItemsMove;
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
 
   // Transformer and item node refs (all types)
   const itemNodesRef = useRef<Map<string, Konva.Group>>(new Map());
   const transformerRef = useRef<Konva.Transformer | null>(null);
+
+  // Effective items map ref for mouse-up intersection test
+  const effectiveItemsByIdRef = useRef<Record<string, BoardItem>>({});
 
   const handleGroupMount = useCallback((id: string, node: Konva.Group | null) => {
     if (node) {
@@ -663,25 +743,42 @@ export function BoardCanvas({
     }
   }, []);
 
-  // Sync Transformer to the currently selected item
-  const selectedItem = useMemo(() => items.find((i) => i.id === selectedId), [items, selectedId]);
+  // Derived: single selected item for single-select transformer config
+  const selectedItem = useMemo(
+    () => (selectedIds.length === 1 ? items.find((i) => i.id === selectedIds[0]) : null),
+    [items, selectedIds]
+  );
 
+  // Sync Transformer to all currently selected items
   useEffect(() => {
     const tr = transformerRef.current;
     if (!tr) return;
-    if (selectedId) {
-      const node = itemNodesRef.current.get(selectedId);
-      if (node) {
-        tr.nodes([node]);
-        tr.getLayer()?.batchDraw();
-      } else {
-        tr.nodes([]);
+    const nodes = selectedIds
+      .map((id) => itemNodesRef.current.get(id))
+      .filter((n): n is Konva.Group => !!n);
+    tr.nodes(nodes);
+    tr.getLayer()?.batchDraw();
+  }, [selectedIds]);
+
+  // Space key: toggle pan mode in select tool
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        const active = document.activeElement as HTMLElement | null;
+        if (active?.tagName === "TEXTAREA" || active?.tagName === "INPUT") return;
+        spaceHeldRef.current = true;
       }
-    } else {
-      tr.nodes([]);
-      tr.getLayer()?.batchDraw();
-    }
-  }, [selectedId]);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") spaceHeldRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
 
   // Trigger frame title editing when parent requests it
   const prevFrameTitleEditingIdRef = useRef<string | null>(null);
@@ -726,16 +823,68 @@ export function BoardCanvas({
     return map;
   }, [items, remoteDragging, localPositions]);
 
-  const handleLocalDragMove = useCallback((id: string, x: number, y: number) => {
-    setLocalPositions((prev) => ({ ...prev, [id]: { x, y } }));
+  // Keep a ref for mouse-up intersection test (stable access in handlers)
+  effectiveItemsByIdRef.current = effectiveItemsById;
+
+  // Called when an item's drag starts; sets up group drag state
+  const handleItemDragStart = useCallback((id: string, startX: number, startY: number) => {
+    const currentSelectedIds = selectedIdsRef.current;
+    if (currentSelectedIds.length > 1 && currentSelectedIds.includes(id)) {
+      const others = currentSelectedIds
+        .filter((sid) => sid !== id)
+        .map((sid) => {
+          const node = itemNodesRef.current.get(sid);
+          return { id: sid, startX: node?.x() ?? 0, startY: node?.y() ?? 0 };
+        });
+      groupDragRef.current = { sourceId: id, sourceStartX: startX, sourceStartY: startY, others };
+    } else {
+      groupDragRef.current = null;
+    }
   }, []);
 
-  const handleLocalDragEnd = useCallback((id: string) => {
+  const handleLocalDragMove = useCallback((id: string, x: number, y: number) => {
+    const gd = groupDragRef.current;
+    if (gd && gd.sourceId === id && gd.others.length > 0) {
+      const dx = x - gd.sourceStartX;
+      const dy = y - gd.sourceStartY;
+      setLocalPositions((prev) => {
+        const next: Record<string, { x: number; y: number }> = { ...prev, [id]: { x, y } };
+        for (const other of gd.others) {
+          next[other.id] = { x: other.startX + dx, y: other.startY + dy };
+        }
+        return next;
+      });
+    } else {
+      setLocalPositions((prev) => ({ ...prev, [id]: { x, y } }));
+    }
+  }, []);
+
+  const handleLocalDragEnd = useCallback((id: string, finalX: number, finalY: number) => {
+    const gd = groupDragRef.current;
+
     setLocalPositions((prev) => {
       const next = { ...prev };
       delete next[id];
+      if (gd && gd.sourceId === id) {
+        for (const other of gd.others) {
+          delete next[other.id];
+        }
+      }
       return next;
     });
+
+    // Persist group moves for the other items (source is persisted by useDragBroadcast)
+    if (gd && gd.sourceId === id && gd.others.length > 0) {
+      const dx = finalX - gd.sourceStartX;
+      const dy = finalY - gd.sourceStartY;
+      const moves = gd.others.map((other) => ({
+        id: other.id,
+        x: Math.round(other.startX + dx),
+        y: Math.round(other.startY + dy),
+      }));
+      onItemsMoveRef.current?.(moves);
+      groupDragRef.current = null;
+    }
   }, []);
 
   const handleWheel = useCallback(
@@ -774,13 +923,22 @@ export function BoardCanvas({
         const pos = stage.getPointerPosition();
         if (pos) {
           if (activeToolRef.current === "frame") {
-            // Start drawing a frame instead of panning
+            // Start drawing a frame
             const worldX = (pos.x - stage.x()) / stage.scaleX();
             const worldY = (pos.y - stage.y()) / stage.scaleY();
             frameDrawStartRef.current = { x: worldX, y: worldY };
             setFrameDrawRect(null);
             return;
           }
+          if (activeToolRef.current === "select" && !spaceHeldRef.current) {
+            // Start selection box drag
+            const worldX = (pos.x - stage.x()) / stage.scaleX();
+            const worldY = (pos.y - stage.y()) / stage.scaleY();
+            selectionBoxStartRef.current = { x: worldX, y: worldY };
+            setSelectionBox(null);
+            return;
+          }
+          // Pan mode: space+drag in select mode, or connect/other modes
           isPanningRef.current = true;
           panStartRef.current = { x: pos.x, y: pos.y };
           stageStartRef.current = { x: stage.x(), y: stage.y() };
@@ -840,6 +998,17 @@ export function BoardCanvas({
             h: Math.abs(worldY - start.y),
           });
         }
+
+        // Update selection box
+        if (activeToolRef.current === "select" && selectionBoxStartRef.current) {
+          const start = selectionBoxStartRef.current;
+          setSelectionBox({
+            x: Math.min(start.x, worldX),
+            y: Math.min(start.y, worldY),
+            w: Math.abs(worldX - start.x),
+            h: Math.abs(worldY - start.y),
+          });
+        }
       }
       if (!isPanningRef.current || !panStartRef.current || !stageStartRef.current) return;
       if (!pointer) return;
@@ -881,6 +1050,26 @@ export function BoardCanvas({
       setFrameDrawRect(null);
       return;
     }
+
+    // Complete selection box
+    if (selectionBoxStartRef.current) {
+      const box = selectionBoxRef.current;
+      if (box && box.w > 5 && box.h > 5) {
+        // Find all items whose bounding box intersects the selection box
+        const allItems = Object.values(effectiveItemsByIdRef.current);
+        const intersecting = allItems.filter((item) =>
+          rectsIntersect(box, getItemBounds(item))
+        );
+        onSelectMultipleRef.current(intersecting.map((i) => i.id));
+      } else {
+        // Tiny drag / plain click on background → clear selection
+        onBgClickRef.current?.();
+      }
+      selectionBoxStartRef.current = null;
+      setSelectionBox(null);
+      return;
+    }
+
     isPanningRef.current = false;
     panStartRef.current = null;
     stageStartRef.current = null;
@@ -994,7 +1183,7 @@ export function BoardCanvas({
   }, [frameTitleEditId]);
 
   return (
-    <div className={`absolute inset-0 z-0${activeTool === "frame" ? " cursor-crosshair" : ""}`}>
+    <div className={`absolute inset-0 z-0${activeTool === "frame" ? " cursor-crosshair" : activeTool === "select" && !spaceHeldRef.current ? " cursor-default" : ""}`}>
       <Stage
         ref={stageRef}
         width={width}
@@ -1030,11 +1219,14 @@ export function BoardCanvas({
           {frameItems.map((item) => {
             const displayItem = effectiveItemsById[item.id] ?? item;
             const remoteEntry = remoteDragging[item.id];
+            const isSelected = selectedIds.includes(item.id);
+            const isInMultiSelect = isSelected && selectedIds.length > 1;
             return (
               <FrameItem
                 key={item.id}
                 item={displayItem}
-                isSelected={item.id === selectedId}
+                isSelected={isSelected}
+                isInMultiSelect={isInMultiSelect}
                 onSelect={onSelect}
                 boardId={boardId}
                 uid={uid}
@@ -1045,6 +1237,7 @@ export function BoardCanvas({
                 onDblClick={handleFrameDblClick}
                 onGroupMount={handleGroupMount}
                 onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                onItemDragStart={handleItemDragStart}
               />
             );
           })}
@@ -1069,9 +1262,10 @@ export function BoardCanvas({
             );
           })}
 
-          {/* Board items (stickies and rects) */}
+          {/* Board items (stickies, rects, text) */}
           {nonFrameItems.map((item) => {
-            const isSelected = item.id === selectedId;
+            const isSelected = selectedIds.includes(item.id);
+            const isInMultiSelect = isSelected && selectedIds.length > 1;
             const isConnectSource = item.id === connectSourceId;
             const remoteEntry = remoteDragging[item.id];
             const displayItem = effectiveItemsById[item.id] ?? item;
@@ -1082,6 +1276,7 @@ export function BoardCanvas({
                   key={item.id}
                   item={displayItem}
                   isSelected={isSelected}
+                  isInMultiSelect={isInMultiSelect}
                   isConnectSource={isConnectSource}
                   onSelect={onSelect}
                   onItemClick={onItemClick}
@@ -1093,6 +1288,7 @@ export function BoardCanvas({
                   onLocalDragEnd={handleLocalDragEnd}
                   onGroupMount={handleGroupMount}
                   onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onItemDragStart={handleItemDragStart}
                 />
               );
             }
@@ -1103,6 +1299,7 @@ export function BoardCanvas({
                   key={item.id}
                   item={displayItem}
                   isSelected={isSelected}
+                  isInMultiSelect={isInMultiSelect}
                   isConnectSource={isConnectSource}
                   isEditing={editingId === item.id}
                   onSelect={onSelect}
@@ -1116,6 +1313,7 @@ export function BoardCanvas({
                   onLocalDragEnd={handleLocalDragEnd}
                   onGroupMount={handleGroupMount}
                   onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onItemDragStart={handleItemDragStart}
                 />
               );
             }
@@ -1125,6 +1323,7 @@ export function BoardCanvas({
                 key={item.id}
                 item={displayItem}
                 isSelected={isSelected}
+                isInMultiSelect={isInMultiSelect}
                 isConnectSource={isConnectSource}
                 isEditing={editingId === item.id}
                 onSelect={onSelect}
@@ -1138,6 +1337,7 @@ export function BoardCanvas({
                 onLocalDragEnd={handleLocalDragEnd}
                 onGroupMount={handleGroupMount}
                 onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                onItemDragStart={handleItemDragStart}
               />
             );
           })}
@@ -1157,12 +1357,29 @@ export function BoardCanvas({
             />
           )}
 
-          {/* Transformer for move/resize/rotate on all selected items */}
+          {/* Selection box drawn while dragging on empty canvas */}
+          {selectionBox && selectionBox.w > 2 && selectionBox.h > 2 && (
+            <Rect
+              x={selectionBox.x}
+              y={selectionBox.y}
+              width={selectionBox.w}
+              height={selectionBox.h}
+              fill="rgba(99,102,241,0.07)"
+              stroke="#6366f1"
+              strokeWidth={1}
+              dash={[5, 3]}
+              listening={false}
+            />
+          )}
+
+          {/* Transformer for move/resize/rotate — attaches to all selected nodes */}
           <Transformer
             ref={transformerRef}
-            rotateEnabled={selectedItem?.type !== "frame"}
+            rotateEnabled={selectedIds.length === 1 && selectedItem?.type !== "frame"}
+            resizeEnabled={selectedIds.length === 1}
             keepRatio={false}
             boundBoxFunc={(oldBox, newBox) => {
+              if (selectedIds.length !== 1) return oldBox;
               const minSize = selectedItem?.type === "frame" ? FRAME_MIN_SIZE : ITEM_MIN_SIZE;
               if (newBox.width < minSize || newBox.height < minSize) return oldBox;
               return newBox;

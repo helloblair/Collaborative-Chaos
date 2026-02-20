@@ -84,7 +84,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<"select" | "connect" | "frame">("select");
   const [pendingFrameTitleId, setPendingFrameTitleId] = useState<string | null>(null);
@@ -397,24 +397,67 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     return () => unsub();
   }, [boardId, uid, boardAccess]);
 
-  // Delete selected item with connector cascade
-  const handleDeleteItem = useCallback(async () => {
-    if (!selectedId) return;
+  // Derived single selection id for operations that need exactly one item
+  const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
+
+  // Select handler: shift+click toggles; plain click single-selects
+  const handleSelect = useCallback((id: string, shiftKey?: boolean) => {
+    setSelectedIds((prev) => {
+      if (shiftKey) {
+        return prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id];
+      }
+      return [id];
+    });
+    setSelectedConnectorId(null);
+  }, []);
+
+  // Box/drag selection: replace selection with intersected items
+  const handleSelectMultiple = useCallback((ids: string[]) => {
+    setSelectedIds(ids);
+    setSelectedConnectorId(null);
+  }, []);
+
+  // Persist group-drag moves for non-source items in a batch
+  const handleItemsMove = useCallback(
+    async (moves: Array<{ id: string; x: number; y: number }>) => {
+      if (moves.length === 0) return;
+      try {
+        const batch = writeBatch(db);
+        for (const move of moves) {
+          const itemRef = doc(collection(db, "boards", boardId, "items"), move.id);
+          batch.update(itemRef, { x: move.x, y: move.y, updatedAt: serverTimestamp() });
+        }
+        await batch.commit();
+      } catch {
+        // Firestore sync will reconcile
+      }
+    },
+    [boardId]
+  );
+
+  // Delete all selected items with connector cascade
+  const handleDeleteItems = useCallback(async () => {
+    if (selectedIds.length === 0) return;
     try {
       const batch = writeBatch(db);
-      batch.delete(doc(collection(db, "boards", boardId, "items"), selectedId));
-      // Cascade: delete all connectors referencing this item
-      for (const conn of Object.values(connectors)) {
-        if (conn.fromId === selectedId || conn.toId === selectedId) {
-          batch.delete(doc(collection(db, "boards", boardId, "connectors"), conn.id));
+      const connectorIdsToDelete = new Set<string>();
+      for (const id of selectedIds) {
+        batch.delete(doc(collection(db, "boards", boardId, "items"), id));
+        for (const conn of Object.values(connectors)) {
+          if (conn.fromId === id || conn.toId === id) {
+            connectorIdsToDelete.add(conn.id);
+          }
         }
       }
+      for (const connId of connectorIdsToDelete) {
+        batch.delete(doc(collection(db, "boards", boardId, "connectors"), connId));
+      }
       await batch.commit();
-      setSelectedId(null);
+      setSelectedIds([]);
     } catch {
       // Firestore sync will reconcile
     }
-  }, [boardId, selectedId, connectors]);
+  }, [boardId, selectedIds, connectors]);
 
   // Delete selected connector
   const handleDeleteConnector = useCallback(async () => {
@@ -553,14 +596,10 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const itemsArray = useMemo(() => Object.values(boardItems), [boardItems]);
   const connectorsArray = useMemo(() => Object.values(connectors), [connectors]);
 
-  // Handle item clicks — routes by active tool
+  // Handle item clicks — connect mode only; selection is handled by onSelect in canvas
   const handleItemClick = useCallback(
     async (id: string) => {
-      if (activeTool === "select") {
-        setSelectedId(id);
-        setSelectedConnectorId(null);
-        return;
-      }
+      if (activeTool !== "connect") return;
       // Connect mode — frames are not connectable
       if (typeof uid !== "string" || !uid) return;
       if (boardItems[id]?.type === "frame") return;
@@ -592,11 +631,12 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   // Handle connector selection
   const handleSelectConnector = useCallback((id: string) => {
     setSelectedConnectorId(id);
-    setSelectedId(null);
+    setSelectedIds([]);
   }, []);
 
   // Handle canvas background click — clears selections and cancels connect source
   const handleBgClick = useCallback(() => {
+    setSelectedIds([]);
     if (activeTool === "connect") {
       setConnectSourceId(null);
     }
@@ -763,6 +803,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       if (active?.tagName === "TEXTAREA" || active?.tagName === "INPUT") return;
 
       if (e.key === "Escape") {
+        setSelectedIds([]);
         if (activeTool === "connect") {
           setConnectSourceId(null);
         }
@@ -774,8 +815,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       }
 
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedId) {
-          handleDeleteItem();
+        if (selectedIds.length > 0) {
+          handleDeleteItems();
         } else if (selectedConnectorId) {
           handleDeleteConnector();
         }
@@ -783,7 +824,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId, selectedConnectorId, activeTool, handleDeleteItem, handleDeleteConnector]);
+  }, [selectedIds, selectedConnectorId, activeTool, handleDeleteItems, handleDeleteConnector]);
 
   // E) Sort items so active/dragged renders on top; stable sort by activeItemId
   const sortedItems = useMemo(() => {
@@ -835,6 +876,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     selectedItem?.type === "frame" ? "#6366f1" : "#C9E4DE"
   );
   const selectedItemFontSize = selectedItem?.fontSize ?? 16;
+  const hasSelection = selectedIds.length > 0;
+  const isMultiSelect = selectedIds.length > 1;
 
   return (
     <main
@@ -892,7 +935,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
               onClick={() => {
                 const next = activeTool === "frame" ? "select" : "frame";
                 setActiveTool(next);
-                setSelectedId(null);
+                setSelectedIds([]);
                 setSelectedConnectorId(null);
               }}
               className={`w-full rounded-lg px-3 py-2 border font-medium text-sm transition-colors text-left ${
@@ -912,7 +955,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                 const next = activeTool === "connect" ? "select" : "connect";
                 setActiveTool(next);
                 setConnectSourceId(null);
-                setSelectedId(null);
+                setSelectedIds([]);
                 setSelectedConnectorId(null);
               }}
               className={`w-full rounded-lg px-3 py-2 border font-medium text-sm transition-colors text-left ${
@@ -929,75 +972,83 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                 : "Connect"}
             </button>
 
-            {selectedId && activeTool === "select" && (
+            {hasSelection && activeTool === "select" && (
               <>
                 <hr className="border-gray-200" />
-                {selectedItem?.type === "text" ? (
-                  <>
-                    <label className="text-xs text-gray-500 font-medium px-1">Text Color</label>
-                    <div className="flex flex-wrap gap-1.5 px-1">
-                      {TEXT_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          onClick={() => handleColorChange(color)}
-                          className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
-                          style={{
-                            background: color,
-                            borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
-                            boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
-                          }}
-                          aria-label={`Set text color ${color}`}
-                        />
-                      ))}
-                    </div>
-                    <label className="text-xs text-gray-500 font-medium px-1">Size</label>
-                    <div className="flex flex-wrap gap-1 px-1">
-                      {FONT_SIZES.map((size) => (
-                        <button
-                          key={size}
-                          type="button"
-                          onClick={() => handleFontSizeChange(size)}
-                          className={`rounded px-2 py-0.5 text-xs font-medium border transition-colors ${
-                            selectedItemFontSize === size
-                              ? "bg-gray-800 text-white border-gray-800"
-                              : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
-                          }`}
-                          aria-label={`Font size ${size}`}
-                        >
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                  </>
+                {isMultiSelect ? (
+                  <p className="text-xs text-gray-500 font-medium px-1">
+                    {selectedIds.length} items selected
+                  </p>
                 ) : (
                   <>
-                    <label className="text-xs text-gray-500 font-medium px-1">Color</label>
-                    <div className="flex flex-wrap gap-1.5 px-1">
-                      {FILL_COLORS.map((color) => (
-                        <button
-                          key={color}
-                          type="button"
-                          onClick={() => handleColorChange(color)}
-                          className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
-                          style={{
-                            background: color,
-                            borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
-                            boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
-                          }}
-                          aria-label={`Set color ${color}`}
-                        />
-                      ))}
-                    </div>
+                    {selectedItem?.type === "text" ? (
+                      <>
+                        <label className="text-xs text-gray-500 font-medium px-1">Text Color</label>
+                        <div className="flex flex-wrap gap-1.5 px-1">
+                          {TEXT_COLORS.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => handleColorChange(color)}
+                              className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
+                              style={{
+                                background: color,
+                                borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
+                                boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
+                              }}
+                              aria-label={`Set text color ${color}`}
+                            />
+                          ))}
+                        </div>
+                        <label className="text-xs text-gray-500 font-medium px-1">Size</label>
+                        <div className="flex flex-wrap gap-1 px-1">
+                          {FONT_SIZES.map((size) => (
+                            <button
+                              key={size}
+                              type="button"
+                              onClick={() => handleFontSizeChange(size)}
+                              className={`rounded px-2 py-0.5 text-xs font-medium border transition-colors ${
+                                selectedItemFontSize === size
+                                  ? "bg-gray-800 text-white border-gray-800"
+                                  : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
+                              }`}
+                              aria-label={`Font size ${size}`}
+                            >
+                              {size}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <label className="text-xs text-gray-500 font-medium px-1">Color</label>
+                        <div className="flex flex-wrap gap-1.5 px-1">
+                          {FILL_COLORS.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => handleColorChange(color)}
+                              className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
+                              style={{
+                                background: color,
+                                borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
+                                boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
+                              }}
+                              aria-label={`Set color ${color}`}
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
                 <button
                   type="button"
-                  onClick={handleDeleteItem}
+                  onClick={handleDeleteItems}
                   className="w-full rounded-lg px-3 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 font-medium text-sm transition-colors text-left"
-                  aria-label="Delete selected item"
+                  aria-label="Delete selected items"
                 >
-                  Delete
+                  {isMultiSelect ? `Delete (${selectedIds.length})` : "Delete"}
                 </button>
               </>
             )}
@@ -1064,8 +1115,10 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             width={canvasWidth}
             height={viewportSize.height}
             items={itemsArray}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
+            selectedIds={selectedIds}
+            onSelect={handleSelect}
+            onSelectMultiple={handleSelectMultiple}
+            onItemsMove={handleItemsMove}
             onItemClick={handleItemClick}
             onTextCommit={handleTextCommit}
             presenceMap={presenceMap}
