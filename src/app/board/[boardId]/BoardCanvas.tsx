@@ -642,6 +642,7 @@ export type BoardCanvasProps = {
   onFrameTitleCommit?: (id: string, title: string) => void;
   onItemTransform?: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
   onItemsMove?: (moves: Array<{ id: string; x: number; y: number }>) => void;
+  onViewportChange?: (pos: { x: number; y: number }, scale: number) => void;
   frameTitleEditingId?: string | null;
   textEditingId?: string | null;
 };
@@ -670,6 +671,7 @@ export function BoardCanvas({
   onFrameTitleCommit,
   onItemTransform,
   onItemsMove,
+  onViewportChange,
   frameTitleEditingId = null,
   textEditingId = null,
 }: BoardCanvasProps) {
@@ -725,8 +727,12 @@ export function BoardCanvas({
   onSelectMultipleRef.current = onSelectMultiple;
   const onItemsMoveRef = useRef(onItemsMove);
   onItemsMoveRef.current = onItemsMove;
+  const onViewportChangeRef = useRef(onViewportChange);
+  onViewportChangeRef.current = onViewportChange;
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
+  const stageScaleRef = useRef(stageScale);
+  stageScaleRef.current = stageScale;
 
   // Transformer and item node refs (all types)
   const itemNodesRef = useRef<Map<string, Konva.Group>>(new Map());
@@ -904,11 +910,13 @@ export function BoardCanvas({
         x: (pointer.x - oldX) / oldScale,
         y: (pointer.y - oldY) / oldScale,
       };
-      setStageScale(clampedScale);
-      setStagePos({
+      const newPos = {
         x: pointer.x - mousePointTo.x * clampedScale,
         y: pointer.y - mousePointTo.y * clampedScale,
-      });
+      };
+      setStageScale(clampedScale);
+      setStagePos(newPos);
+      onViewportChangeRef.current?.(newPos, clampedScale);
     },
     []
   );
@@ -1014,10 +1022,12 @@ export function BoardCanvas({
       if (!pointer) return;
       const dx = pointer.x - panStartRef.current.x;
       const dy = pointer.y - panStartRef.current.y;
-      setStagePos({
+      const newPanPos = {
         x: stageStartRef.current.x + dx,
         y: stageStartRef.current.y + dy,
-      });
+      };
+      setStagePos(newPanPos);
+      onViewportChangeRef.current?.(newPanPos, stageScaleRef.current);
     },
     [onCursorMove]
   );
