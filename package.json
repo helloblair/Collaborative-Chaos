@@ -9,7 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "firebase": "^12.9.0",
+    "firebase-admin": "^13.6.1",
     "konva": "^10.2.0",
     "nanoid": "^5.1.6",
     "next": "16.1.6",
