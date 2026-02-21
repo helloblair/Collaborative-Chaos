@@ -5,6 +5,13 @@ import { verifyIdToken, adminDb } from "@/lib/firebaseAdmin";
 import { AI_TOOLS, SYSTEM_PROMPT } from "@/lib/aiTools";
 import type { BoardItem } from "@/types/board";
 import { nanoid } from "nanoid";
+import {
+  computeGridLayout,
+  computeSWOTLayout,
+  computeJourneyMapLayout,
+  computeRetroLayout,
+  type BoardObjectMap,
+} from "@/lib/layoutEngine";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,7 +41,6 @@ interface ActionResult {
 // Constants
 // ---------------------------------------------------------------------------
 
-// Initialised once at module level — reused across requests
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const STICKY_COLORS: Record<string, string> = {
@@ -46,14 +52,13 @@ const STICKY_COLORS: Record<string, string> = {
   orange: "#FED7AA",
 };
 
+/** Reservations older than this are considered stale and ignored/deleted. */
+const RESERVATION_TTL_MS = 30_000;
+
 // ---------------------------------------------------------------------------
 // Batch writer helper
 // ---------------------------------------------------------------------------
 
-/**
- * Thin wrapper around Firestore WriteBatch that tracks operation count
- * and resets itself after each flush.
- */
 class BatchWriter {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private batch: any = adminDb.batch();
@@ -71,6 +76,11 @@ class BatchWriter {
     this.opCount++;
   }
 
+  delete(collectionPath: string, docId: string) {
+    this.batch.delete(adminDb.doc(`${collectionPath}/${docId}`));
+    this.opCount++;
+  }
+
   async flush() {
     if (this.opCount > 0) {
       await this.batch.commit();
@@ -81,7 +91,7 @@ class BatchWriter {
 }
 
 // ---------------------------------------------------------------------------
-// Tool executor
+// Synchronous tool executor (simple CRUD ops)
 // ---------------------------------------------------------------------------
 
 function executeTool(
@@ -113,10 +123,7 @@ function executeTool(
         createdBy: uid,
         updatedAt: at,
       });
-      return {
-        toolResult: { success: true, id },
-        action: { tool: "createStickyNote", id },
-      };
+      return { toolResult: { success: true, id }, action: { tool: "createStickyNote", id } };
     }
 
     case "createShape": {
@@ -149,10 +156,7 @@ function executeTool(
         createdBy: uid,
         updatedAt: at,
       });
-      return {
-        toolResult: { success: true, id },
-        action: { tool: "createFrame", id, title: input.title },
-      };
+      return { toolResult: { success: true, id }, action: { tool: "createFrame", id, title: input.title } };
     }
 
     case "createConnector": {
@@ -218,27 +222,6 @@ function executeTool(
       };
     }
 
-    case "arrangeInGrid": {
-      const ids = input.objectIds as string[];
-      const cols = (input.columns as number) || Math.ceil(Math.sqrt(ids.length));
-      const spacing = 220; // 200px object + 20px gap
-
-      ids.forEach((id, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        writer.update(itemsPath, id, {
-          x: defaultX + col * spacing,
-          y: defaultY + row * spacing,
-          updatedAt: at,
-        });
-      });
-
-      return {
-        toolResult: { success: true, arranged: ids.length },
-        action: { tool: "arrangeInGrid", count: ids.length, columns: cols },
-      };
-    }
-
     default:
       return {
         toolResult: { error: `Unknown tool: ${toolName}` },
@@ -282,79 +265,265 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  // 3. Build the initial user message with viewport context
-  const userContent = [
-    `Viewport: x=${viewportBounds.x}, y=${viewportBounds.y}, width=${viewportBounds.width}, height=${viewportBounds.height}`,
-    `Objects visible in viewport (${viewportObjects.length}):`,
-    JSON.stringify(viewportObjects),
-    `\nCommand: ${command}`,
-  ].join("\n");
+  const vb = viewportBounds;
+  const itemsPath = `boards/${boardId}/items`;
+  const connectorsPath = `boards/${boardId}/connectors`;
+  const reservationsPath = `boards/${boardId}/reservations`;
 
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: userContent },
-  ];
+  // 3. Reservation pattern: write a bounding-box reservation before calling the LLM.
+  //    This prevents concurrent AI commands from placing objects on top of each other.
+  const reservationId = nanoid();
+  const now = Date.now();
 
-  const results: ActionResult[] = [];
-  const writer = new BatchWriter();
+  // Read + cleanup stale reservations
+  const reservationsSnap = await adminDb.collection(reservationsPath).get();
+  const activeReservations: Array<{ x: number; y: number; w: number; h: number }> = [];
+  const staleDeletes: Promise<unknown>[] = [];
 
-  // 4. Agentic loop — run until end_turn or 10 turns max
-  for (let turn = 0; turn < 10; turn++) {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages,
-      tools: AI_TOOLS,
-    });
+  for (const d of reservationsSnap.docs) {
+    const data = d.data();
+    const age = now - (data.createdAt as number ?? 0);
+    if (age >= RESERVATION_TTL_MS) {
+      staleDeletes.push(d.ref.delete().catch(() => {}));
+    } else if (d.id !== reservationId) {
+      activeReservations.push(data.area as { x: number; y: number; w: number; h: number });
+    }
+  }
+  // Fire-and-forget stale cleanup
+  if (staleDeletes.length > 0) Promise.all(staleDeletes).catch(() => {});
 
-    // Append assistant turn so Claude has the full conversation history
-    messages.push({ role: "assistant", content: response.content });
+  // Write our own reservation
+  await adminDb.doc(`${reservationsPath}/${reservationId}`).set({
+    area: { x: vb.x, y: vb.y, w: vb.width, h: vb.height },
+    createdAt: now,
+    type: "reservation",
+  });
 
-    if (response.stop_reason !== "tool_use") break;
+  try {
+    // 4. Build the initial user message with viewport context
+    const reservationNote =
+      activeReservations.length > 0
+        ? `\nActive space reservations (another AI command is using these areas — avoid placing objects here):\n${JSON.stringify(activeReservations)}`
+        : "";
 
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    const userContent = [
+      `Viewport: x=${vb.x}, y=${vb.y}, width=${vb.width}, height=${vb.height}`,
+      `Objects visible in viewport (${viewportObjects.length}):`,
+      JSON.stringify(viewportObjects),
+      reservationNote,
+      `\nCommand: ${command}`,
+    ].join("\n");
 
-    for (const block of response.content) {
-      if (block.type !== "tool_use") continue;
+    const messages: Anthropic.MessageParam[] = [{ role: "user", content: userContent }];
 
-      const input = block.input as Record<string, unknown>;
+    const results: ActionResult[] = [];
+    const writer = new BatchWriter();
 
-      if (block.name === "getBoardState") {
-        // Flush pending writes first so the read reflects the latest state
-        await writer.flush();
+    // 5. Agentic loop — run until end_turn or 10 turns max
+    for (let turn = 0; turn < 10; turn++) {
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        messages,
+        tools: AI_TOOLS,
+      });
 
-        const snap = await adminDb.collection(`boards/${boardId}/items`).get();
-        const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      messages.push({ role: "assistant", content: response.content });
 
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: JSON.stringify(items),
-        });
-        results.push({ tool: "getBoardState", count: items.length });
-      } else {
-        const { toolResult, action } = executeTool(
-          block.name,
-          input,
-          boardId,
-          uid,
-          writer,
-          viewportBounds
-        );
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: JSON.stringify(toolResult),
-        });
-        results.push(action);
+      if (response.stop_reason !== "tool_use") break;
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+      for (const block of response.content) {
+        if (block.type !== "tool_use") continue;
+
+        const input = block.input as Record<string, unknown>;
+        const at = FieldValue.serverTimestamp();
+
+        // ── getBoardState ───────────────────────────────────────────────────
+        if (block.name === "getBoardState") {
+          await writer.flush();
+          const snap = await adminDb.collection(itemsPath).get();
+          const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify(items),
+          });
+          results.push({ tool: "getBoardState", count: items.length });
+
+        // ── arrangeInGrid (async: fetches real object sizes) ────────────────
+        } else if (block.name === "arrangeInGrid") {
+          await writer.flush();
+          const ids = input.objectIds as string[];
+          const cols = (input.columns as number) || undefined;
+
+          // Fetch actual object sizes from Firestore
+          const objectMap: BoardObjectMap = new Map();
+          await Promise.all(
+            ids.map(async (id) => {
+              const snap = await adminDb.doc(`${itemsPath}/${id}`).get();
+              if (snap.exists) {
+                objectMap.set(id, { id, ...snap.data() } as BoardItem);
+              }
+            })
+          );
+
+          const positions = computeGridLayout(ids, objectMap, {
+            columns: cols,
+            startX: vb.x + 20,
+            startY: vb.y + 20,
+            gapX: 20,
+            gapY: 20,
+          });
+
+          for (const [id, pos] of positions) {
+            writer.update(itemsPath, id, { x: pos.x, y: pos.y, updatedAt: at });
+          }
+
+          const action: ActionResult = { tool: "arrangeInGrid", count: ids.length, columns: cols };
+          results.push(action);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify({ success: true, arranged: ids.length }),
+          });
+
+        // ── createSWOTTemplate ──────────────────────────────────────────────
+        } else if (block.name === "createSWOTTemplate") {
+          const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
+          const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
+          const layout = computeSWOTLayout(centerX, centerY);
+          const frameIds: string[] = [];
+
+          for (const frame of layout.frames) {
+            const id = nanoid();
+            frameIds.push(id);
+            writer.set(itemsPath, id, {
+              type: "frame",
+              title: frame.title,
+              x: frame.x,
+              y: frame.y,
+              width: frame.width,
+              height: frame.height,
+              fill: frame.color,
+              createdBy: uid,
+              updatedAt: at,
+            });
+            results.push({ tool: "createSWOTTemplate", id });
+          }
+
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify({ success: true, frameIds }),
+          });
+
+        // ── createJourneyMap ────────────────────────────────────────────────
+        } else if (block.name === "createJourneyMap") {
+          const stages = (input.stages as string[]) ?? ["Stage 1", "Stage 2", "Stage 3"];
+          const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
+          const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
+          const layout = computeJourneyMapLayout(stages, centerX, centerY);
+          const frameIds: string[] = [];
+
+          for (const frame of layout.frames) {
+            const id = nanoid();
+            frameIds.push(id);
+            writer.set(itemsPath, id, {
+              type: "frame",
+              title: frame.title,
+              x: frame.x,
+              y: frame.y,
+              width: frame.width,
+              height: frame.height,
+              createdBy: uid,
+              updatedAt: at,
+            });
+            results.push({ tool: "createJourneyMap", id });
+          }
+
+          // Create arrow connectors between adjacent frames
+          for (const conn of layout.connectors) {
+            const connId = nanoid();
+            writer.set(connectorsPath, connId, {
+              boardId,
+              fromId: frameIds[conn.fromIndex],
+              toId: frameIds[conn.toIndex],
+              style: "arrow",
+              color: "#64748B",
+              createdBy: uid,
+              createdAt: at,
+            });
+          }
+
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify({ success: true, frameIds }),
+          });
+
+        // ── createRetroTemplate ─────────────────────────────────────────────
+        } else if (block.name === "createRetroTemplate") {
+          const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
+          const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
+          const layout = computeRetroLayout(centerX, centerY);
+          const frameIds: string[] = [];
+
+          for (const frame of layout.frames) {
+            const id = nanoid();
+            frameIds.push(id);
+            writer.set(itemsPath, id, {
+              type: "frame",
+              title: frame.title,
+              x: frame.x,
+              y: frame.y,
+              width: frame.width,
+              height: frame.height,
+              fill: frame.color,
+              createdBy: uid,
+              updatedAt: at,
+            });
+            results.push({ tool: "createRetroTemplate", id });
+          }
+
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify({ success: true, frameIds }),
+          });
+
+        // ── All other sync tools ────────────────────────────────────────────
+        } else {
+          const { toolResult, action } = executeTool(
+            block.name,
+            input,
+            boardId,
+            uid,
+            writer,
+            vb
+          );
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify(toolResult),
+          });
+          results.push(action);
+        }
       }
+
+      // Flush all writes queued during this turn before the next LLM call
+      await writer.flush();
+      messages.push({ role: "user", content: toolResults });
     }
 
-    // Flush all writes queued during this turn before the next LLM call
-    await writer.flush();
+    // Collect IDs of all created objects for client-side animation
+    const createdIds = results.filter((r) => r.id).map((r) => r.id as string);
 
-    messages.push({ role: "user", content: toolResults });
+    return NextResponse.json({ success: true, results, createdIds });
+  } finally {
+    // Always delete our reservation, even if the LLM call failed
+    await adminDb.doc(`${reservationsPath}/${reservationId}`).delete().catch(() => {});
   }
-
-  return NextResponse.json({ success: true, results });
 }

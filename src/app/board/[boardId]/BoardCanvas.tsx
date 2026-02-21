@@ -645,6 +645,8 @@ export type BoardCanvasProps = {
   onViewportChange?: (pos: { x: number; y: number }, scale: number) => void;
   frameTitleEditingId?: string | null;
   textEditingId?: string | null;
+  /** IDs of objects just created by an AI command — triggers staggered entrance animation. */
+  aiCreatedIds?: string[];
 };
 
 export function BoardCanvas({
@@ -674,6 +676,7 @@ export function BoardCanvas({
   onViewportChange,
   frameTitleEditingId = null,
   textEditingId = null,
+  aiCreatedIds = [],
 }: BoardCanvasProps) {
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
@@ -765,6 +768,35 @@ export function BoardCanvas({
     tr.nodes(nodes);
     tr.getLayer()?.batchDraw();
   }, [selectedIds]);
+
+  // Staggered entrance animation for AI-created objects.
+  // Runs whenever aiCreatedIds changes OR items updates (i.e. Firestore listener fires
+  // and new Konva nodes mount + register via handleGroupMount).
+  const animatedAiIdsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (aiCreatedIds.length === 0) return;
+    let staggerIndex = 0;
+    for (const id of aiCreatedIds) {
+      if (animatedAiIdsRef.current.has(id)) continue;
+      const node = itemNodesRef.current.get(id);
+      if (!node) continue; // not mounted yet — will retry when items next updates
+
+      animatedAiIdsRef.current.add(id);
+      const delay = staggerIndex * 100;
+      staggerIndex++;
+
+      // Start invisible + slightly scaled down
+      node.opacity(0);
+      node.scaleX(0.88);
+      node.scaleY(0.88);
+
+      // Tween to full opacity/scale after stagger delay
+      setTimeout(() => {
+        node.to({ opacity: 1, scaleX: 1, scaleY: 1, duration: 0.28 });
+      }, delay);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiCreatedIds, items]);
 
   // Space key: toggle pan mode in select tool
   useEffect(() => {
