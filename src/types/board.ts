@@ -12,7 +12,7 @@ export interface Board {
 
 export type BoardItem = {
   id: string;
-  type: "sticky" | "rect" | "frame" | "text";
+  type: "sticky" | "rect" | "circle" | "line" | "heart" | "frame" | "text";
   x: number;
   y: number;
   text?: string;
@@ -22,6 +22,7 @@ export type BoardItem = {
   fill?: string;
   fontSize?: number;
   rotation?: number;
+  points?: number[];      // For line items: [x1, y1, x2, y2] relative to item origin
   createdBy: string;
   updatedAt?: unknown;
 };
