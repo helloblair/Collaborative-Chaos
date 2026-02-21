@@ -22,6 +22,7 @@ const LINE_WIDTH = 200;
 const HEART_SIZE = 120;
 const HEART_FILL = "#FFD7D7";
 const SIDEBAR_WIDTH = 192; // matches Tailwind w-48
+const KNOWN_ITEM_TYPES = new Set(["sticky", "rect", "circle", "line", "heart", "frame", "text"]);
 
 const FILL_COLORS = [
   "#C9E4DE", // mint (sticky default)
@@ -91,6 +92,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [clipboardItems, setClipboardItems] = useState<BoardItem[]>([]);
+  const boardItemsRef = useRef(boardItems);
+  boardItemsRef.current = boardItems;
   const viewportRef = useRef<{ pos: { x: number; y: number }; scale: number }>({ pos: { x: 0, y: 0 }, scale: 1 });
   const pasteOffsetCountRef = useRef(0);
   const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
@@ -210,29 +213,59 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     const unsubscribe = onSnapshot(
       itemsRef,
       (snapshot) => {
-        const items: Record<string, BoardItem> = {};
-        snapshot.docs.forEach((d) => {
-          const data = d.data();
-          const rawType = data.type;
-          const KNOWN_TYPES = new Set(["sticky", "rect", "circle", "line", "heart", "frame", "text"]);
-          const type = KNOWN_TYPES.has(rawType) ? (rawType as BoardItem["type"]) : "sticky";
-          items[d.id] = {
-            id: d.id,
-            type,
-            x: data.x ?? 0,
-            y: data.y ?? 0,
-            text: data.text ?? "",
-            title: data.title ?? "",
-            width: data.width,
-            height: data.height,
-            fill: data.fill,
-            fontSize: data.fontSize,
-            rotation: data.rotation,
-            createdBy: data.createdBy ?? "",
-            updatedAt: data.updatedAt,
-          };
+        setBoardItems((prev) => {
+          const nextItems: Record<string, BoardItem> = {};
+          let changed = false;
+          const nextIds = new Set<string>();
+          snapshot.docs.forEach((d) => {
+            nextIds.add(d.id);
+            const data = d.data();
+            const rawType = data.type;
+            const type = KNOWN_ITEM_TYPES.has(rawType) ? (rawType as BoardItem["type"]) : "sticky";
+            const existing = prev[d.id];
+            // Reuse same object reference if render-relevant fields haven't changed
+            if (
+              existing &&
+              existing.type === type &&
+              existing.x === (data.x ?? 0) &&
+              existing.y === (data.y ?? 0) &&
+              existing.text === (data.text ?? "") &&
+              existing.title === (data.title ?? "") &&
+              existing.width === data.width &&
+              existing.height === data.height &&
+              existing.fill === data.fill &&
+              existing.fontSize === data.fontSize &&
+              existing.rotation === data.rotation
+            ) {
+              nextItems[d.id] = existing;
+            } else {
+              changed = true;
+              nextItems[d.id] = {
+                id: d.id,
+                type,
+                x: data.x ?? 0,
+                y: data.y ?? 0,
+                text: data.text ?? "",
+                title: data.title ?? "",
+                width: data.width,
+                height: data.height,
+                fill: data.fill,
+                fontSize: data.fontSize,
+                rotation: data.rotation,
+                createdBy: data.createdBy ?? "",
+                updatedAt: data.updatedAt,
+              };
+            }
+          });
+          // Check for additions or deletions
+          if (!changed) {
+            const prevKeys = Object.keys(prev);
+            if (prevKeys.length !== nextIds.size || prevKeys.some((k) => !nextIds.has(k))) {
+              changed = true;
+            }
+          }
+          return changed ? nextItems : prev;
         });
-        setBoardItems(items);
       },
       (err) => {
         console.error("[board] items snapshot permission error:", err.code, err.message);
@@ -896,7 +929,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       if (activeTool !== "connect") return;
       // Connect mode — frames are not connectable
       if (typeof uid !== "string" || !uid) return;
-      if (boardItems[id]?.type === "frame") return;
+      if (boardItemsRef.current[id]?.type === "frame") return;
       if (!connectSourceId) {
         setConnectSourceId(id);
       } else if (connectSourceId === id) {
@@ -919,7 +952,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         setConnectSourceId(null);
       }
     },
-    [activeTool, connectSourceId, boardId, uid, boardItems]
+    [activeTool, connectSourceId, boardId, uid]
   );
 
   // Handle connector selection
@@ -1693,7 +1726,28 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             <div>first 3 keys: {Object.keys(presenceMap).slice(0, 3).join(", ") || "(none)"}</div>
             <div>connectors: {connectorsArray.length}</div>
             {rtdbError && <div className="text-red-400">rtdbError: {rtdbError}</div>}
+            <div>items: {itemsArray.length}</div>
           </div>
+          <button
+            className="mt-2 px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs"
+            onClick={async () => {
+              const { generateStressTestItems } = await import("@/lib/stressTest");
+              const { pos, scale } = viewportRef.current;
+              const center = {
+                x: (-pos.x + viewportSize.width / 2) / scale,
+                y: (-pos.y + viewportSize.height / 2) / scale,
+              };
+              const testItems = generateStressTestItems(500, center);
+              const batch = writeBatch(db);
+              for (const item of testItems) {
+                const itemRef = doc(collection(db, "boards", boardId, "items"));
+                batch.set(itemRef, { ...item, createdBy: uid, updatedAt: serverTimestamp() });
+              }
+              await batch.commit();
+            }}
+          >
+            Stress Test: Add 500 Items
+          </button>
         </div>
       )}
 
