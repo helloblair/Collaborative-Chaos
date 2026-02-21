@@ -242,6 +242,80 @@ export const AI_TOOLS: Anthropic.Tool[] = [
       required: [],
     },
   },
+
+  {
+    name: "createSWOTTemplate",
+    description:
+      "Create a complete SWOT analysis template: 4 frames arranged in a 2×2 grid (Strengths, Weaknesses, Opportunities, Threats). The server computes exact positions using the layout engine. Use this instead of calling createFrame 4 times.",
+    input_schema: {
+      type: "object",
+      properties: {
+        centerX: {
+          type: "number",
+          description: "X coordinate of the center of the 2×2 grid. Defaults to viewport center.",
+        },
+        centerY: {
+          type: "number",
+          description: "Y coordinate of the center of the 2×2 grid. Defaults to viewport center.",
+        },
+      },
+      required: [],
+    },
+  },
+
+  {
+    name: "createJourneyMap",
+    description:
+      "Create a user journey map template: a horizontal row of labeled frames, one per stage, with arrows connecting them. The server computes exact positions using the layout engine.",
+    input_schema: {
+      type: "object",
+      properties: {
+        stages: {
+          type: "array",
+          items: { type: "string" },
+          description: "Ordered list of stage names (e.g. ['Awareness', 'Consideration', 'Purchase', 'Loyalty']).",
+        },
+        centerX: {
+          type: "number",
+          description: "X coordinate of the center of the row. Defaults to viewport center.",
+        },
+        centerY: {
+          type: "number",
+          description: "Y coordinate of the center of the row. Defaults to viewport center.",
+        },
+      },
+      required: ["stages"],
+    },
+  },
+
+  {
+    name: "createRetroTemplate",
+    description:
+      "Create a retrospective template: 3 frames in a horizontal layout (What Went Well, What Didn't, Action Items). The server computes exact positions using the layout engine.",
+    input_schema: {
+      type: "object",
+      properties: {
+        centerX: {
+          type: "number",
+          description: "X coordinate of the center of the 3-column layout. Defaults to viewport center.",
+        },
+        centerY: {
+          type: "number",
+          description: "Y coordinate of the center of the layout. Defaults to viewport center.",
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
-export const SYSTEM_PROMPT = `You are an AI assistant that helps users manipulate a collaborative whiteboard. You receive the user's natural language command and the current state of objects visible in their viewport. When the user asks you to create, move, arrange, or modify board elements, use the provided tools. You can call multiple tools in sequence. For layout commands, plan the full layout first, then execute each creation/move as individual tool calls. For complex templates: SWOT Analysis = 2x2 grid of frames (Strengths, Weaknesses, Opportunities, Threats). User Journey Map = horizontal row of frames per stage. Retrospective = 3 columns (What Went Well, What Didn't, Action Items). Position new objects within the user's viewport bounds with at least 20px gaps. If you need more context about existing objects, use getBoardState first.`;
+export const SYSTEM_PROMPT = `You are an AI assistant that helps users manipulate a collaborative whiteboard. You receive the user's natural language command and the current state of objects visible in their viewport. When the user asks you to create, move, arrange, or modify board elements, use the provided tools.
+
+For template commands, prefer the dedicated template tools:
+- "SWOT analysis" → use createSWOTTemplate (creates 4 pre-positioned frames)
+- "user journey map" or "journey map" → use createJourneyMap with stage names
+- "retrospective" or "retro" → use createRetroTemplate (creates 3 pre-positioned frames)
+
+For arranging existing objects, use arrangeInGrid — the server will fetch actual object sizes and compute optimal positions.
+
+For other layout commands, plan the full layout first, then execute each creation/move as individual tool calls. Position new objects within the user's viewport bounds with at least 20px gaps. If active space reservations are listed, avoid placing objects in those areas. If you need more context about existing objects, use getBoardState first.`;

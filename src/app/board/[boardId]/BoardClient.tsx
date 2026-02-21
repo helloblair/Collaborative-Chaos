@@ -101,6 +101,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const retryRef = useRef(false);
   const localSessionId = useMemo(() => nanoid(), []);
 
+  // AI command bar state
+  const [aiCommandOpen, setAiCommandOpen] = useState(false);
+  const [aiCommandText, setAiCommandText] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiCreatedIds, setAiCreatedIds] = useState<string[]>([]);
+  const aiInputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     const measure = () =>
       setViewportSize({ width: window.innerWidth, height: window.innerHeight });
@@ -666,6 +674,119 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     router.push("/");
   }, [router]);
 
+  // ── Viewport serialization ────────────────────────────────────────────────
+
+  const serializeViewport = useCallback(() => {
+    const { pos, scale } = viewportRef.current;
+    const vpW = Math.max(0, viewportSize.width - SIDEBAR_WIDTH);
+    const vpH = viewportSize.height;
+
+    // Visible region in world coordinates
+    const vpLeft = -pos.x / scale;
+    const vpTop = -pos.y / scale;
+    const vpRight = vpLeft + vpW / scale;
+    const vpBottom = vpTop + vpH / scale;
+
+    const viewportBounds = {
+      x: Math.round(vpLeft),
+      y: Math.round(vpTop),
+      width: Math.round(vpW / scale),
+      height: Math.round(vpH / scale),
+    };
+
+    const vpCenterX = (vpLeft + vpRight) / 2;
+    const vpCenterY = (vpTop + vpBottom) / 2;
+
+    // Filter to items that overlap the visible viewport
+    let visible = Object.values(boardItems).filter((item) => {
+      const w = item.width ?? 200;
+      const h = item.height ?? 160;
+      return (
+        item.x < vpRight &&
+        item.x + w > vpLeft &&
+        item.y < vpBottom &&
+        item.y + h > vpTop
+      );
+    });
+
+    // Cap at 50, prioritized by proximity to viewport center
+    if (visible.length > 50) {
+      visible = visible
+        .map((item) => {
+          const cx = item.x + (item.width ?? 200) / 2;
+          const cy = item.y + (item.height ?? 160) / 2;
+          return { item, dist: Math.hypot(cx - vpCenterX, cy - vpCenterY) };
+        })
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 50)
+        .map(({ item }) => item);
+    }
+
+    const viewportObjects = visible.map((item) => ({
+      id: item.id,
+      type: item.type,
+      x: Math.round(item.x),
+      y: Math.round(item.y),
+      ...(item.width !== undefined && { width: Math.round(item.width) }),
+      ...(item.height !== undefined && { height: Math.round(item.height) }),
+      ...(item.text !== undefined && { text: item.text }),
+      ...(item.title !== undefined && { title: item.title }),
+      ...(item.fill !== undefined && { color: item.fill }),
+    }));
+
+    return { viewportBounds, viewportObjects };
+  }, [boardItems, viewportSize]);
+
+  // ── AI command handler ────────────────────────────────────────────────────
+
+  const handleAiCommand = useCallback(
+    async (command: string) => {
+      if (!uid || typeof uid !== "string") return;
+      const user = auth.currentUser;
+      if (!user) return;
+
+      setAiLoading(true);
+      setAiError(null);
+
+      try {
+        const token = await user.getIdToken();
+        const { viewportBounds, viewportObjects } = serializeViewport();
+
+        const response = await fetch("/api/ai-command", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ command, boardId, viewportObjects, viewportBounds }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "AI command failed");
+        }
+
+        // Track created IDs for staggered entrance animation
+        const ids: string[] = data.createdIds ?? [];
+        if (ids.length > 0) {
+          setAiCreatedIds(ids);
+          // Clear after all animations complete (100ms/item + 500ms buffer)
+          setTimeout(() => setAiCreatedIds([]), ids.length * 100 + 800);
+        }
+
+        setAiCommandOpen(false);
+        setAiCommandText("");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "AI command failed";
+        setAiError(msg);
+      } finally {
+        setAiLoading(false);
+      }
+    },
+    [uid, boardId, serializeViewport]
+  );
+
   const handleTextCommit = useCallback(
     async (id: string, nextText: string) => {
       try {
@@ -889,15 +1010,36 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     []
   );
 
+  // Cmd+K: focus AI command bar when board is active; auto-open when authenticated
+  useEffect(() => {
+    if (aiCommandOpen) {
+      // Focus the input after the bar mounts
+      requestAnimationFrame(() => aiInputRef.current?.focus());
+    }
+  }, [aiCommandOpen]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement as HTMLElement | null;
-      if (active?.tagName === "TEXTAREA" || active?.tagName === "INPUT") return;
-
       const mod = e.metaKey || e.ctrlKey;
 
+      // Cmd+K toggles the AI command bar regardless of focus state
+      if (mod && e.key === "k") {
+        if (boardAccess !== "ok") return;
+        e.preventDefault();
+        setAiCommandOpen((prev) => !prev);
+        setAiError(null);
+        return;
+      }
+
+      if (active?.tagName === "TEXTAREA" || active?.tagName === "INPUT") return;
+
       if (e.key === "Escape") {
+        if (aiCommandOpen) {
+          setAiCommandOpen(false);
+          return;
+        }
         setSelectedIds([]);
         if (activeTool === "connect") setConnectSourceId(null);
         if (activeTool !== "select") setActiveTool("select");
@@ -933,7 +1075,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedIds, selectedConnectorId, activeTool, handleDeleteItems, handleDeleteConnector, handleDuplicate, handleCopy, handlePaste]);
+  }, [selectedIds, selectedConnectorId, activeTool, aiCommandOpen, boardAccess, handleDeleteItems, handleDeleteConnector, handleDuplicate, handleCopy, handlePaste]);
 
   // E) Sort items so active/dragged renders on top; stable sort by activeItemId
   const sortedItems = useMemo(() => {
@@ -1198,6 +1340,16 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         <div className="mt-auto flex flex-col gap-2">
           {uid && boardAccess === "ok" && (
             <>
+              {/* AI command button */}
+              <button
+                type="button"
+                onClick={() => { setAiCommandOpen(true); setAiError(null); }}
+                className="w-full rounded-lg px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white font-medium text-sm transition-colors text-left flex items-center gap-2"
+                aria-label="Open AI command bar"
+              >
+                <span>✦ Ask AI</span>
+                <span className="ml-auto text-violet-200 text-xs font-mono">⌘K</span>
+              </button>
               <button
                 type="button"
                 onClick={handleShareLink}
@@ -1247,6 +1399,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             onViewportChange={handleViewportChange}
             frameTitleEditingId={pendingFrameTitleId}
             textEditingId={pendingTextEditId}
+            aiCreatedIds={aiCreatedIds}
           />
         )}
       </div>
@@ -1320,6 +1473,93 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         <div className="absolute top-4 left-52 z-40 pointer-events-none">
           <div className="text-sm bg-red-50 text-red-800 rounded-lg px-3 py-2 max-w-xs border border-red-200">
             {createError}
+          </div>
+        </div>
+      )}
+
+      {/* AI command bar overlay */}
+      {aiCommandOpen && uid && boardAccess === "ok" && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center pb-8 pointer-events-none"
+          style={{ paddingLeft: SIDEBAR_WIDTH }}
+        >
+          <div
+            className="pointer-events-auto w-full max-w-xl mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Backdrop click to close */}
+            <div
+              className="fixed inset-0 -z-10"
+              onClick={() => { setAiCommandOpen(false); setAiError(null); }}
+            />
+            <form
+              className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (aiCommandText.trim() && !aiLoading) {
+                  handleAiCommand(aiCommandText.trim());
+                }
+              }}
+            >
+              <div className="flex items-center px-4 py-3 gap-3">
+                <span className="text-violet-500 text-lg select-none flex-shrink-0">✦</span>
+                <input
+                  ref={aiInputRef}
+                  type="text"
+                  value={aiCommandText}
+                  onChange={(e) => setAiCommandText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") { setAiCommandOpen(false); setAiError(null); }
+                  }}
+                  placeholder="Ask AI to do something…"
+                  className="flex-1 bg-transparent outline-none text-sm text-gray-900 placeholder:text-gray-400"
+                  disabled={aiLoading}
+                  autoComplete="off"
+                />
+                {aiLoading ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <svg className="animate-spin h-4 w-4 text-violet-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Thinking…
+                  </div>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!aiCommandText.trim()}
+                    className="rounded-lg px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                  >
+                    Run
+                  </button>
+                )}
+              </div>
+              {aiError && (
+                <div className="px-4 py-2 bg-red-50 border-t border-red-100 text-xs text-red-700">
+                  {aiError}
+                </div>
+              )}
+              <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-400">
+                <span>Try: &quot;Create a SWOT analysis&quot; · &quot;Add 3 sticky notes for ideas&quot; · &quot;Arrange selected items in a grid&quot;</span>
+                <span className="ml-auto font-mono">Esc to close</span>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* AI error toast (shown when bar is closed but error persists) */}
+      {aiError && !aiCommandOpen && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto" style={{ marginLeft: SIDEBAR_WIDTH / 2 }}>
+          <div className="flex items-center gap-3 bg-red-600 text-white text-sm rounded-xl px-4 py-3 shadow-lg">
+            <span>{aiError}</span>
+            <button
+              type="button"
+              onClick={() => setAiError(null)}
+              className="text-red-200 hover:text-white transition-colors text-xs"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}
