@@ -16,7 +16,12 @@ const MAX_SCALE = 2.5;
 /** World extent for background and grid so they persist when panning/zooming (layer coords) */
 const WORLD_HALF = 20000;
 const GRID_STEP = 40;
-const CURSOR_THROTTLE_MS = 40;
+// Cursor broadcast throttle: 16ms ≈ 1 frame at 60fps.
+// Broadcasts only fire on mousemove so they stop automatically when idle,
+// keeping RTDB cost proportional to actual movement (~2.5× more writes vs
+// the previous 40ms throttle during active movement, zero when idle).
+// Expected end-to-end latency: ~36–66ms (16ms throttle + 20–50ms RTDB propagation).
+const CURSOR_THROTTLE_MS = 16;
 const STALE_PRESENCE_MS = 20000;
 const FRAME_LABEL_H = 26;
 const FRAME_MIN_SIZE = 80;
