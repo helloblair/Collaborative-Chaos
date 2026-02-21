@@ -554,6 +554,7 @@ function FrameItem({
       ref={(node) => { groupRef.current = node; }}
       x={item.x}
       y={item.y}
+      rotation={item.rotation ?? 0}
       draggable={!isRemoteDragging && activeTool === "select"}
       onDragStart={(e) => {
         if (!isInMultiSelect) onSelect(item.id, false);
@@ -586,7 +587,7 @@ function FrameItem({
           node.y(),
           Math.max(FRAME_MIN_SIZE, Math.round(w * scaleX)),
           Math.max(FRAME_MIN_SIZE, Math.round(h * scaleY)),
-          0,
+          node.rotation(),
         );
       }}
     >
@@ -1829,7 +1830,7 @@ export function BoardCanvas({
           {/* Transformer for move/resize/rotate — attaches to all selected nodes */}
           <Transformer
             ref={transformerRef}
-            rotateEnabled={selectedIds.length === 1 && selectedItem?.type !== "frame" && selectedItem?.type !== "line"}
+            rotateEnabled={selectedIds.length === 1 && selectedItem?.type !== "line"}
             resizeEnabled={selectedIds.length === 1 && selectedItem?.type !== "line"}
             keepRatio={false}
             boundBoxFunc={(oldBox, newBox) => {
