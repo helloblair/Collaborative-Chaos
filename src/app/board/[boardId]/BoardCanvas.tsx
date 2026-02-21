@@ -2,7 +2,7 @@
 
 import type { BoardItem, Connector } from "@/types/board";
 import type Konva from "konva";
-import { Arrow, Circle, Group, Layer, Line, Rect, Stage, Text, Transformer } from "react-konva";
+import { Arrow, Circle, Ellipse, Group, Layer, Line, Path, Rect, Stage, Text, Transformer } from "react-konva";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDragBroadcast } from "@/hooks/useDragBroadcast";
 
@@ -46,11 +46,21 @@ function isPresenceActive(p: PresenceEntry | null | undefined): boolean {
 // ─── Connector geometry helpers ───────────────────────────────────────────────
 
 function getItemBounds(item: BoardItem): { x: number; y: number; w: number; h: number } {
+  if (item.type === "line") {
+    const dw = item.width ?? 200;
+    const dh = item.height ?? 0;
+    return {
+      x: item.x + Math.min(0, dw),
+      y: item.y + Math.min(0, dh),
+      w: Math.abs(dw) || 10,
+      h: Math.abs(dh) || 10,
+    };
+  }
   return {
     x: item.x,
     y: item.y,
-    w: item.width ?? (item.type === "rect" ? 200 : item.type === "frame" ? 300 : STICKY_SIZE),
-    h: item.height ?? (item.type === "rect" ? 120 : item.type === "frame" ? 200 : item.type === "text" ? (item.fontSize ?? 16) * 2 : STICKY_SIZE),
+    w: item.width ?? (item.type === "circle" ? 150 : item.type === "heart" ? 120 : item.type === "rect" ? 200 : item.type === "frame" ? 300 : STICKY_SIZE),
+    h: item.height ?? (item.type === "circle" ? 150 : item.type === "heart" ? 120 : item.type === "rect" ? 120 : item.type === "frame" ? 200 : item.type === "text" ? (item.fontSize ?? 16) * 2 : STICKY_SIZE),
   };
 }
 
@@ -611,6 +621,339 @@ function FrameItem({
         fontStyle="600"
         ellipsis={true}
         listening={false}
+      />
+    </Group>
+  );
+}
+
+// ─── CircleItem sub-component ──────────────────────────────────────────────────
+
+function CircleItem({
+  item,
+  isSelected,
+  isInMultiSelect,
+  isConnectSource,
+  onSelect,
+  onItemClick,
+  boardId,
+  uid,
+  isRemoteDragging,
+  activeTool,
+  onLocalDragMove,
+  onLocalDragEnd,
+  onGroupMount,
+  onTransformEnd,
+  onItemDragStart,
+}: RectItemProps) {
+  const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const groupRef = useRef<Konva.Group | null>(null);
+  const w = item.width ?? 150;
+  const h = item.height ?? 150;
+  const fill = item.fill ?? "#C6DEF1";
+
+  useEffect(() => {
+    onGroupMount(item.id, groupRef.current);
+    return () => { onGroupMount(item.id, null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
+  return (
+    <Group
+      ref={(node) => { groupRef.current = node; }}
+      x={item.x}
+      y={item.y}
+      rotation={item.rotation ?? 0}
+      draggable={!isRemoteDragging && activeTool === "select"}
+      onDragStart={(e) => {
+        if (!isInMultiSelect) onSelect(item.id, false);
+        onItemDragStart(item.id, e.target.x(), e.target.y());
+      }}
+      onClick={(e) => {
+        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        onItemClick?.(item.id);
+      }}
+      onDragMove={(e) => {
+        onDragMove(e.target.x(), e.target.y());
+        onLocalDragMove(item.id, e.target.x(), e.target.y());
+      }}
+      onDragEnd={(e) => {
+        const fx = e.target.x();
+        const fy = e.target.y();
+        onDragEnd(fx, fy);
+        onLocalDragEnd(item.id, fx, fy);
+      }}
+      onTransformEnd={() => {
+        const node = groupRef.current;
+        if (!node) return;
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        node.scaleX(1);
+        node.scaleY(1);
+        onTransformEnd(
+          item.id,
+          node.x(),
+          node.y(),
+          Math.max(ITEM_MIN_SIZE, Math.round(w * scaleX)),
+          Math.max(ITEM_MIN_SIZE, Math.round(h * scaleY)),
+          node.rotation(),
+        );
+      }}
+    >
+      <Ellipse
+        x={w / 2}
+        y={h / 2}
+        radiusX={w / 2}
+        radiusY={h / 2}
+        fill={fill}
+        stroke={isConnectSource ? "#2563eb" : isSelected ? "#f59e0b" : undefined}
+        strokeWidth={isConnectSource || isSelected ? 2 : 0}
+        shadowColor="black"
+        shadowBlur={8}
+        shadowOpacity={0.2}
+      />
+    </Group>
+  );
+}
+
+// ─── LineItem sub-component ────────────────────────────────────────────────────
+
+type LineItemProps = {
+  item: BoardItem;
+  isSelected: boolean;
+  isInMultiSelect: boolean;
+  isConnectSource: boolean;
+  onSelect: (id: string, shiftKey?: boolean) => void;
+  onItemClick?: (id: string) => void;
+  boardId: string;
+  uid: string | null | undefined;
+  isRemoteDragging: boolean;
+  activeTool: "select" | "connect" | "frame";
+  onLocalDragMove: (id: string, x: number, y: number) => void;
+  onLocalDragEnd: (id: string, x: number, y: number) => void;
+  onGroupMount: (id: string, node: Konva.Group | null) => void;
+  onTransformEnd: (id: string, x: number, y: number, width: number, height: number, rotation: number) => void;
+  onItemDragStart: (id: string, startX: number, startY: number) => void;
+};
+
+function LineItem({
+  item,
+  isSelected,
+  isInMultiSelect,
+  isConnectSource,
+  onSelect,
+  onItemClick,
+  boardId,
+  uid,
+  isRemoteDragging,
+  activeTool,
+  onLocalDragMove,
+  onLocalDragEnd,
+  onGroupMount,
+  onTransformEnd,
+  onItemDragStart,
+}: LineItemProps) {
+  const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const groupRef = useRef<Konva.Group | null>(null);
+  const w = item.width ?? 200;
+  const h = item.height ?? 0;
+  const stroke = item.fill ?? "#374151";
+
+  // Track endpoint positions during drag for live line update
+  const [dragPts, setDragPts] = useState<{ p1: { x: number; y: number }; p2: { x: number; y: number } } | null>(null);
+  const pts = dragPts ?? { p1: { x: 0, y: 0 }, p2: { x: w, y: h } };
+
+  useEffect(() => {
+    onGroupMount(item.id, groupRef.current);
+    return () => { onGroupMount(item.id, null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
+  return (
+    <Group
+      ref={(node) => { groupRef.current = node; }}
+      x={item.x}
+      y={item.y}
+      draggable={!isRemoteDragging && activeTool === "select"}
+      onDragStart={(e) => {
+        if (!isInMultiSelect) onSelect(item.id, false);
+        onItemDragStart(item.id, e.target.x(), e.target.y());
+      }}
+      onClick={(e) => {
+        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        onItemClick?.(item.id);
+      }}
+      onDragMove={(e) => {
+        onDragMove(e.target.x(), e.target.y());
+        onLocalDragMove(item.id, e.target.x(), e.target.y());
+      }}
+      onDragEnd={(e) => {
+        const fx = e.target.x();
+        const fy = e.target.y();
+        onDragEnd(fx, fy);
+        onLocalDragEnd(item.id, fx, fy);
+      }}
+    >
+      {/* Main line stroke */}
+      <Line
+        points={[pts.p1.x, pts.p1.y, pts.p2.x, pts.p2.y]}
+        stroke={stroke}
+        strokeWidth={3}
+        hitStrokeWidth={15}
+        lineCap="round"
+      />
+      {/* Selection highlight */}
+      {(isSelected || isConnectSource) && (
+        <Line
+          points={[pts.p1.x, pts.p1.y, pts.p2.x, pts.p2.y]}
+          stroke={isConnectSource ? "#2563eb" : "#f59e0b"}
+          strokeWidth={5}
+          listening={false}
+          dash={[6, 4]}
+          opacity={0.5}
+          lineCap="round"
+        />
+      )}
+      {/* Endpoint handles (visible when selected) */}
+      {isSelected && activeTool === "select" && (
+        <>
+          <Circle
+            x={pts.p1.x}
+            y={pts.p1.y}
+            radius={6}
+            fill="white"
+            stroke="#f59e0b"
+            strokeWidth={2}
+            draggable
+            onDragMove={(e) => {
+              setDragPts({ p1: { x: e.target.x(), y: e.target.y() }, p2: dragPts?.p2 ?? { x: w, y: h } });
+            }}
+            onDragEnd={(e) => {
+              const lx = e.target.x();
+              const ly = e.target.y();
+              e.target.x(0);
+              e.target.y(0);
+              setDragPts(null);
+              onTransformEnd(item.id, item.x + lx, item.y + ly, w - lx, h - ly, 0);
+            }}
+          />
+          <Circle
+            x={pts.p2.x}
+            y={pts.p2.y}
+            radius={6}
+            fill="white"
+            stroke="#f59e0b"
+            strokeWidth={2}
+            draggable
+            onDragMove={(e) => {
+              setDragPts({ p1: dragPts?.p1 ?? { x: 0, y: 0 }, p2: { x: e.target.x(), y: e.target.y() } });
+            }}
+            onDragEnd={(e) => {
+              const nx = e.target.x();
+              const ny = e.target.y();
+              setDragPts(null);
+              onTransformEnd(item.id, item.x, item.y, nx, ny, 0);
+            }}
+          />
+        </>
+      )}
+    </Group>
+  );
+}
+
+// ─── HeartItem sub-component ───────────────────────────────────────────────────
+
+// Heart SVG path normalized to a 100×100 bounding box
+const HEART_PATH = "M 50,100 C 25,76 0,56 0,33 C 0,13 12,0 30,0 C 40,0 48,6 50,17 C 52,6 60,0 70,0 C 88,0 100,13 100,33 C 100,56 75,76 50,100 Z";
+
+function HeartItem({
+  item,
+  isSelected,
+  isInMultiSelect,
+  isConnectSource,
+  onSelect,
+  onItemClick,
+  boardId,
+  uid,
+  isRemoteDragging,
+  activeTool,
+  onLocalDragMove,
+  onLocalDragEnd,
+  onGroupMount,
+  onTransformEnd,
+  onItemDragStart,
+}: RectItemProps) {
+  const { onDragMove, onDragEnd } = useDragBroadcast(boardId, item.id, uid);
+  const groupRef = useRef<Konva.Group | null>(null);
+  const w = item.width ?? 120;
+  const h = item.height ?? 120;
+  const fill = item.fill ?? "#FFD7D7";
+
+  useEffect(() => {
+    onGroupMount(item.id, groupRef.current);
+    return () => { onGroupMount(item.id, null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+
+  return (
+    <Group
+      ref={(node) => { groupRef.current = node; }}
+      x={item.x}
+      y={item.y}
+      rotation={item.rotation ?? 0}
+      draggable={!isRemoteDragging && activeTool === "select"}
+      onDragStart={(e) => {
+        if (!isInMultiSelect) onSelect(item.id, false);
+        onItemDragStart(item.id, e.target.x(), e.target.y());
+      }}
+      onClick={(e) => {
+        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        onItemClick?.(item.id);
+      }}
+      onDragMove={(e) => {
+        onDragMove(e.target.x(), e.target.y());
+        onLocalDragMove(item.id, e.target.x(), e.target.y());
+      }}
+      onDragEnd={(e) => {
+        const fx = e.target.x();
+        const fy = e.target.y();
+        onDragEnd(fx, fy);
+        onLocalDragEnd(item.id, fx, fy);
+      }}
+      onTransformEnd={() => {
+        const node = groupRef.current;
+        if (!node) return;
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        node.scaleX(1);
+        node.scaleY(1);
+        onTransformEnd(
+          item.id,
+          node.x(),
+          node.y(),
+          Math.max(ITEM_MIN_SIZE, Math.round(w * scaleX)),
+          Math.max(ITEM_MIN_SIZE, Math.round(h * scaleY)),
+          node.rotation(),
+        );
+      }}
+    >
+      {/* Invisible rect for selection outline */}
+      <Rect
+        width={w}
+        height={h}
+        fill="transparent"
+        stroke={isConnectSource ? "#2563eb" : isSelected ? "#f59e0b" : "transparent"}
+        strokeWidth={isConnectSource || isSelected ? 2 : 0}
+        listening={false}
+      />
+      <Path
+        data={HEART_PATH}
+        fill={fill}
+        scaleX={w / 100}
+        scaleY={h / 100}
+        strokeScaleEnabled={false}
+        shadowColor="black"
+        shadowBlur={8}
+        shadowOpacity={0.2}
       />
     </Group>
   );
@@ -1335,6 +1678,75 @@ export function BoardCanvas({
               );
             }
 
+            if (item.type === "circle") {
+              return (
+                <CircleItem
+                  key={item.id}
+                  item={displayItem}
+                  isSelected={isSelected}
+                  isInMultiSelect={isInMultiSelect}
+                  isConnectSource={isConnectSource}
+                  onSelect={onSelect}
+                  onItemClick={onItemClick}
+                  boardId={boardId}
+                  uid={uid}
+                  isRemoteDragging={!!remoteEntry}
+                  activeTool={activeTool}
+                  onLocalDragMove={handleLocalDragMove}
+                  onLocalDragEnd={handleLocalDragEnd}
+                  onGroupMount={handleGroupMount}
+                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onItemDragStart={handleItemDragStart}
+                />
+              );
+            }
+
+            if (item.type === "line") {
+              return (
+                <LineItem
+                  key={item.id}
+                  item={displayItem}
+                  isSelected={isSelected}
+                  isInMultiSelect={isInMultiSelect}
+                  isConnectSource={isConnectSource}
+                  onSelect={onSelect}
+                  onItemClick={onItemClick}
+                  boardId={boardId}
+                  uid={uid}
+                  isRemoteDragging={!!remoteEntry}
+                  activeTool={activeTool}
+                  onLocalDragMove={handleLocalDragMove}
+                  onLocalDragEnd={handleLocalDragEnd}
+                  onGroupMount={handleGroupMount}
+                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onItemDragStart={handleItemDragStart}
+                />
+              );
+            }
+
+            if (item.type === "heart") {
+              return (
+                <HeartItem
+                  key={item.id}
+                  item={displayItem}
+                  isSelected={isSelected}
+                  isInMultiSelect={isInMultiSelect}
+                  isConnectSource={isConnectSource}
+                  onSelect={onSelect}
+                  onItemClick={onItemClick}
+                  boardId={boardId}
+                  uid={uid}
+                  isRemoteDragging={!!remoteEntry}
+                  activeTool={activeTool}
+                  onLocalDragMove={handleLocalDragMove}
+                  onLocalDragEnd={handleLocalDragEnd}
+                  onGroupMount={handleGroupMount}
+                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onItemDragStart={handleItemDragStart}
+                />
+              );
+            }
+
             if (item.type === "text") {
               return (
                 <TextItem
@@ -1417,8 +1829,8 @@ export function BoardCanvas({
           {/* Transformer for move/resize/rotate — attaches to all selected nodes */}
           <Transformer
             ref={transformerRef}
-            rotateEnabled={selectedIds.length === 1 && selectedItem?.type !== "frame"}
-            resizeEnabled={selectedIds.length === 1}
+            rotateEnabled={selectedIds.length === 1 && selectedItem?.type !== "frame" && selectedItem?.type !== "line"}
+            resizeEnabled={selectedIds.length === 1 && selectedItem?.type !== "line"}
             keepRatio={false}
             boundBoxFunc={(oldBox, newBox) => {
               if (selectedIds.length !== 1) return oldBox;

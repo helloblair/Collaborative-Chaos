@@ -258,13 +258,23 @@ function executeTool(
     }
     case "createShape": {
       const id = nanoid();
+      const shapeTypeMap: Record<string, BoardItem["type"]> = {
+        rectangle: "rect",
+        circle: "circle",
+        line: "line",
+        heart: "heart",
+      };
+      const mappedType = shapeTypeMap[(input.type as string) || "rectangle"] ?? "rect";
+      const defaultWidth = mappedType === "circle" ? 150 : mappedType === "heart" ? 120 : mappedType === "line" ? 200 : 150;
+      const defaultHeight = mappedType === "circle" ? 150 : mappedType === "heart" ? 120 : mappedType === "line" ? 0 : 100;
+      const defaultFill = mappedType === "heart" ? "#FFD7D7" : mappedType === "line" ? "#374151" : "#94A3B8";
       writer.set(itemsPath, id, {
-        type: "rect",
-        fill: (input.color as string) || "#94A3B8",
+        type: mappedType,
+        fill: (input.color as string) || defaultFill,
         x: (input.x as number) ?? defaultX,
         y: (input.y as number) ?? defaultY,
-        width: (input.width as number) ?? 150,
-        height: (input.height as number) ?? 100,
+        width: (input.width as number) ?? defaultWidth,
+        height: (input.height as number) ?? defaultHeight,
         createdBy: uid, updatedAt: at,
       });
       return { toolResult: { success: true, id }, action: { tool: "createShape", id, shapeType: input.type } };

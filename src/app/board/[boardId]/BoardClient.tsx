@@ -16,6 +16,11 @@ const STICKY_SIZE = 160;
 const RECT_WIDTH = 200;
 const RECT_HEIGHT = 120;
 const RECT_FILL = "#C6DEF1";
+const CIRCLE_SIZE = 150;
+const CIRCLE_FILL = "#C6DEF1";
+const LINE_WIDTH = 200;
+const HEART_SIZE = 120;
+const HEART_FILL = "#FFD7D7";
 const SIDEBAR_WIDTH = 192; // matches Tailwind w-48
 
 const FILL_COLORS = [
@@ -209,7 +214,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         snapshot.docs.forEach((d) => {
           const data = d.data();
           const rawType = data.type;
-          const type = rawType === "rect" ? "rect" : rawType === "frame" ? "frame" : rawType === "text" ? "text" : "sticky";
+          const KNOWN_TYPES = new Set(["sticky", "rect", "circle", "line", "heart", "frame", "text"]);
+          const type = KNOWN_TYPES.has(rawType) ? (rawType as BoardItem["type"]) : "sticky";
           items[d.id] = {
             id: d.id,
             type,
@@ -300,6 +306,87 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create rectangle";
+      setCreateError(msg);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+
+  // Circle creation
+  const handleAddCircle = useCallback(async () => {
+    if (!uid || typeof uid !== "string") return;
+    setCreateError(null);
+    setIsCreating(true);
+    const spawnX = Math.round(viewportSize.width / 2 - CIRCLE_SIZE / 2);
+    const spawnY = Math.round(viewportSize.height / 2 - CIRCLE_SIZE / 2);
+    try {
+      const itemsRef = collection(db, "boards", boardId, "items");
+      await addDoc(itemsRef, {
+        type: "circle",
+        x: spawnX,
+        y: spawnY,
+        width: CIRCLE_SIZE,
+        height: CIRCLE_SIZE,
+        fill: CIRCLE_FILL,
+        createdBy: uid,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create circle";
+      setCreateError(msg);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+
+  // Line creation
+  const handleAddLine = useCallback(async () => {
+    if (!uid || typeof uid !== "string") return;
+    setCreateError(null);
+    setIsCreating(true);
+    const spawnX = Math.round(viewportSize.width / 2 - LINE_WIDTH / 2);
+    const spawnY = Math.round(viewportSize.height / 2);
+    try {
+      const itemsRef = collection(db, "boards", boardId, "items");
+      await addDoc(itemsRef, {
+        type: "line",
+        x: spawnX,
+        y: spawnY,
+        width: LINE_WIDTH,
+        height: 0,
+        fill: "#374151",
+        createdBy: uid,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create line";
+      setCreateError(msg);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+
+  // Heart creation
+  const handleAddHeart = useCallback(async () => {
+    if (!uid || typeof uid !== "string") return;
+    setCreateError(null);
+    setIsCreating(true);
+    const spawnX = Math.round(viewportSize.width / 2 - HEART_SIZE / 2);
+    const spawnY = Math.round(viewportSize.height / 2 - HEART_SIZE / 2);
+    try {
+      const itemsRef = collection(db, "boards", boardId, "items");
+      await addDoc(itemsRef, {
+        type: "heart",
+        x: spawnX,
+        y: spawnY,
+        width: HEART_SIZE,
+        height: HEART_SIZE,
+        fill: HEART_FILL,
+        createdBy: uid,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to create heart";
       setCreateError(msg);
     } finally {
       setIsCreating(false);
@@ -1123,7 +1210,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const selectedItem = selectedId ? boardItems[selectedId] : null;
   const selectedItemFill = selectedItem?.fill ?? (
     selectedItem?.type === "text" ? "#1c1917" :
-    selectedItem?.type === "rect" ? "#C6DEF1" :
+    selectedItem?.type === "rect" || selectedItem?.type === "circle" ? "#C6DEF1" :
+    selectedItem?.type === "heart" ? "#FFD7D7" :
+    selectedItem?.type === "line" ? "#374151" :
     selectedItem?.type === "frame" ? "#6366f1" : "#C9E4DE"
   );
   const selectedItemFontSize = selectedItem?.fontSize ?? 16;
@@ -1169,6 +1258,33 @@ export default function BoardClient({ boardId }: { boardId: string }) {
               aria-label="Add rectangle"
             >
               {isCreating ? "Creating…" : "Add Rectangle"}
+            </button>
+            <button
+              type="button"
+              onClick={handleAddCircle}
+              disabled={isCreating || activeTool !== "select"}
+              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
+              aria-label="Add circle"
+            >
+              {isCreating ? "Creating…" : "Add Circle"}
+            </button>
+            <button
+              type="button"
+              onClick={handleAddLine}
+              disabled={isCreating || activeTool !== "select"}
+              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
+              aria-label="Add line"
+            >
+              {isCreating ? "Creating…" : "Add Line"}
+            </button>
+            <button
+              type="button"
+              onClick={handleAddHeart}
+              disabled={isCreating || activeTool !== "select"}
+              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
+              aria-label="Add heart"
+            >
+              {isCreating ? "Creating…" : "Add Heart"}
             </button>
             <button
               type="button"

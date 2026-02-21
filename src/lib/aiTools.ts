@@ -33,13 +33,13 @@ export const AI_TOOLS: Anthropic.Tool[] = [
   {
     name: "createShape",
     description:
-      "Create a geometric shape (rectangle, circle, or line) on the board.",
+      "Create a geometric shape (rectangle, circle, line, or heart) on the board.",
     input_schema: {
       type: "object",
       properties: {
         type: {
           type: "string",
-          enum: ["rectangle", "circle", "line"],
+          enum: ["rectangle", "circle", "line", "heart"],
           description: "The kind of shape to create.",
         },
         color: {
