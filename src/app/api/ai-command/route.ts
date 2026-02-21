@@ -271,33 +271,39 @@ export async function POST(req: NextRequest) {
   const reservationsPath = `boards/${boardId}/reservations`;
 
   // 3. Reservation pattern: write a bounding-box reservation before calling the LLM.
-  //    This prevents concurrent AI commands from placing objects on top of each other.
+  //    Gracefully degraded — if Firestore credentials are unavailable the route
+  //    still works; reservations are just skipped.
   const reservationId = nanoid();
   const now = Date.now();
-
-  // Read + cleanup stale reservations
-  const reservationsSnap = await adminDb.collection(reservationsPath).get();
+  let reservationWritten = false;
   const activeReservations: Array<{ x: number; y: number; w: number; h: number }> = [];
-  const staleDeletes: Promise<unknown>[] = [];
 
-  for (const d of reservationsSnap.docs) {
-    const data = d.data();
-    const age = now - (data.createdAt as number ?? 0);
-    if (age >= RESERVATION_TTL_MS) {
-      staleDeletes.push(d.ref.delete().catch(() => {}));
-    } else if (d.id !== reservationId) {
-      activeReservations.push(data.area as { x: number; y: number; w: number; h: number });
+  try {
+    // Read existing reservations and clean up stale ones (>30 s)
+    const reservationsSnap = await adminDb.collection(reservationsPath).get();
+    const staleDeletes: Promise<unknown>[] = [];
+
+    for (const d of reservationsSnap.docs) {
+      const data = d.data();
+      const age = now - ((data.createdAt as number) ?? 0);
+      if (age >= RESERVATION_TTL_MS) {
+        staleDeletes.push(d.ref.delete().catch(() => {}));
+      } else {
+        activeReservations.push(data.area as { x: number; y: number; w: number; h: number });
+      }
     }
-  }
-  // Fire-and-forget stale cleanup
-  if (staleDeletes.length > 0) Promise.all(staleDeletes).catch(() => {});
+    if (staleDeletes.length > 0) Promise.all(staleDeletes).catch(() => {});
 
-  // Write our own reservation
-  await adminDb.doc(`${reservationsPath}/${reservationId}`).set({
-    area: { x: vb.x, y: vb.y, w: vb.width, h: vb.height },
-    createdAt: now,
-    type: "reservation",
-  });
+    // Write our own reservation
+    await adminDb.doc(`${reservationsPath}/${reservationId}`).set({
+      area: { x: vb.x, y: vb.y, w: vb.width, h: vb.height },
+      createdAt: now,
+      type: "reservation",
+    });
+    reservationWritten = true;
+  } catch {
+    // Credentials not configured or Firestore unavailable — continue without reservation
+  }
 
   try {
     // 4. Build the initial user message with viewport context
@@ -523,7 +529,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, results, createdIds });
   } finally {
-    // Always delete our reservation, even if the LLM call failed
-    await adminDb.doc(`${reservationsPath}/${reservationId}`).delete().catch(() => {});
+    // Delete our reservation if it was written, even if the LLM call failed
+    if (reservationWritten) {
+      await adminDb.doc(`${reservationsPath}/${reservationId}`).delete().catch(() => {});
+    }
   }
 }
