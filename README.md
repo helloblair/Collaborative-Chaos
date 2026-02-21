@@ -75,22 +75,11 @@ Spatial reservations via Firestore transactions prevent concurrent AI commands f
    npm install
    ```
 
-3. Create a `.env.local` file with the following variables:
+3. Copy the environment template and fill in your values:
+   ```bash
+   cp .env.example .env.local
    ```
-   NEXT_PUBLIC_FIREBASE_API_KEY=
-   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
-   NEXT_PUBLIC_FIREBASE_PROJECT_ID=
-   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
-   NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
-   NEXT_PUBLIC_FIREBASE_APP_ID=
-   NEXT_PUBLIC_FIREBASE_DATABASE_URL=
-
-   FIREBASE_ADMIN_PROJECT_ID=
-   FIREBASE_ADMIN_CLIENT_EMAIL=
-   FIREBASE_ADMIN_PRIVATE_KEY=
-
-   ANTHROPIC_API_KEY=
-   ```
+   See `.env.example` for the full list of required variables.
 
 4. Start the development server:
    ```bash
@@ -109,6 +98,53 @@ Open the command bar with **Cmd+K** (Mac) or **Ctrl+K** (Windows/Linux). Example
 - "Move all pink sticky notes to the right side"
 - "Build a user journey map with 5 stages"
 - "Set up a retrospective board"
+
+## Deployment
+
+**Production URL:** [collaborative-chaos-j7ow.vercel.app](https://collaborative-chaos-j7ow.vercel.app/)
+
+### Vercel (primary)
+
+1. Push your branch to GitHub.
+2. Import the repo in [vercel.com/new](https://vercel.com/new) and set the root directory to `web`.
+3. Add the environment variables from `.env.example` in the Vercel dashboard under **Settings > Environment Variables**.
+4. Deploy. Vercel auto-detects Next.js and uses the settings in `vercel.json`.
+
+Subsequent pushes to `main` trigger automatic deployments.
+
+```bash
+# Or deploy from the CLI
+npx vercel --prod
+```
+
+### Firebase Hosting (alternative)
+
+Firebase Hosting with the web frameworks preview can serve the Next.js app via Cloud Functions.
+
+```bash
+# Install the Firebase CLI if you haven't already
+npm install -g firebase-tools
+
+# Log in and select the project
+firebase login
+firebase use collabboard-chaos
+
+# Set server-side env vars as Firebase config
+firebase functions:config:set \
+  firebase.project_id="YOUR_PROJECT_ID" \
+  firebase.client_email="YOUR_CLIENT_EMAIL" \
+  firebase.private_key="YOUR_PRIVATE_KEY" \
+  anthropic.api_key="YOUR_ANTHROPIC_KEY"
+
+# Deploy Firestore rules, RTDB rules, and hosting
+firebase deploy
+```
+
+### Deploying Firebase Security Rules Only
+
+```bash
+firebase deploy --only firestore:rules,database
+```
 
 ## Performance Targets
 
