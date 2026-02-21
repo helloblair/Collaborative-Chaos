@@ -3,8 +3,10 @@
 import type { BoardItem, Connector } from "@/types/board";
 import type Konva from "konva";
 import { Arrow, Circle, Ellipse, Group, Layer, Line, Path, Rect, Stage, Text, Transformer } from "react-konva";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDragBroadcast } from "@/hooks/useDragBroadcast";
+
+const NOOP = () => {};
 
 const STICKY_SIZE = 160;
 const STICKY_PADDING = 12;
@@ -41,6 +43,105 @@ function isPresenceActive(p: PresenceEntry | null | undefined): boolean {
   const t = p.lastActive;
   if (typeof t !== "number" || Number.isNaN(t)) return false;
   return Date.now() - t < STALE_PRESENCE_MS;
+}
+
+// ─── React.memo equality helpers ──────────────────────────────────────────────
+
+function boardItemEqual(a: BoardItem, b: BoardItem): boolean {
+  return (
+    a.id === b.id &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.type === b.type &&
+    a.text === b.text &&
+    a.title === b.title &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.fill === b.fill &&
+    a.fontSize === b.fontSize &&
+    a.rotation === b.rotation
+  );
+}
+
+function rectItemPropsEqual(prev: RectItemProps, next: RectItemProps): boolean {
+  return (
+    boardItemEqual(prev.item, next.item) &&
+    prev.isSelected === next.isSelected &&
+    prev.isInMultiSelect === next.isInMultiSelect &&
+    prev.isConnectSource === next.isConnectSource &&
+    prev.isRemoteDragging === next.isRemoteDragging &&
+    prev.activeTool === next.activeTool &&
+    prev.boardId === next.boardId &&
+    prev.uid === next.uid &&
+    prev.onSelect === next.onSelect &&
+    prev.onItemClick === next.onItemClick &&
+    prev.onLocalDragMove === next.onLocalDragMove &&
+    prev.onLocalDragEnd === next.onLocalDragEnd &&
+    prev.onGroupMount === next.onGroupMount &&
+    prev.onTransformEnd === next.onTransformEnd &&
+    prev.onItemDragStart === next.onItemDragStart
+  );
+}
+
+function stickyItemPropsEqual(prev: StickyItemProps, next: StickyItemProps): boolean {
+  return (
+    boardItemEqual(prev.item, next.item) &&
+    prev.isSelected === next.isSelected &&
+    prev.isInMultiSelect === next.isInMultiSelect &&
+    prev.isConnectSource === next.isConnectSource &&
+    prev.isEditing === next.isEditing &&
+    prev.isRemoteDragging === next.isRemoteDragging &&
+    prev.activeTool === next.activeTool &&
+    prev.boardId === next.boardId &&
+    prev.uid === next.uid &&
+    prev.onSelect === next.onSelect &&
+    prev.onItemClick === next.onItemClick &&
+    prev.onDblClick === next.onDblClick &&
+    prev.onLocalDragMove === next.onLocalDragMove &&
+    prev.onLocalDragEnd === next.onLocalDragEnd &&
+    prev.onGroupMount === next.onGroupMount &&
+    prev.onTransformEnd === next.onTransformEnd &&
+    prev.onItemDragStart === next.onItemDragStart
+  );
+}
+
+function frameItemPropsEqual(prev: FrameItemProps, next: FrameItemProps): boolean {
+  return (
+    boardItemEqual(prev.item, next.item) &&
+    prev.isSelected === next.isSelected &&
+    prev.isInMultiSelect === next.isInMultiSelect &&
+    prev.isRemoteDragging === next.isRemoteDragging &&
+    prev.activeTool === next.activeTool &&
+    prev.boardId === next.boardId &&
+    prev.uid === next.uid &&
+    prev.onSelect === next.onSelect &&
+    prev.onDblClick === next.onDblClick &&
+    prev.onLocalDragMove === next.onLocalDragMove &&
+    prev.onLocalDragEnd === next.onLocalDragEnd &&
+    prev.onGroupMount === next.onGroupMount &&
+    prev.onTransformEnd === next.onTransformEnd &&
+    prev.onItemDragStart === next.onItemDragStart
+  );
+}
+
+function connectorEqual(a: Connector, b: Connector): boolean {
+  return (
+    a.id === b.id &&
+    a.fromId === b.fromId &&
+    a.toId === b.toId &&
+    a.style === b.style &&
+    a.color === b.color
+  );
+}
+
+function connectorLinePropsEqual(prev: ConnectorLineProps, next: ConnectorLineProps): boolean {
+  return (
+    connectorEqual(prev.conn, next.conn) &&
+    boardItemEqual(prev.fromItem, next.fromItem) &&
+    boardItemEqual(prev.toItem, next.toItem) &&
+    prev.isSelected === next.isSelected &&
+    prev.onSelect === next.onSelect
+  );
 }
 
 // ─── Connector geometry helpers ───────────────────────────────────────────────
@@ -106,7 +207,7 @@ type ConnectorLineProps = {
   onSelect: (id: string) => void;
 };
 
-function ConnectorLine({ conn, fromItem, toItem, isSelected, onSelect }: ConnectorLineProps) {
+const ConnectorLine = memo(function ConnectorLine({ conn, fromItem, toItem, isSelected, onSelect }: ConnectorLineProps) {
   const fromBounds = getItemBounds(fromItem);
   const toBounds = getItemBounds(toItem);
   const fromCenter = { x: fromBounds.x + fromBounds.w / 2, y: fromBounds.y + fromBounds.h / 2 };
@@ -141,7 +242,7 @@ function ConnectorLine({ conn, fromItem, toItem, isSelected, onSelect }: Connect
       onClick={() => onSelect(conn.id)}
     />
   );
-}
+}, connectorLinePropsEqual);
 
 // ─── Per-item sub-components (allow calling useDragBroadcast per item) ────────
 
@@ -163,7 +264,7 @@ type RectItemProps = {
   onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
-function RectItem({
+const RectItem = memo(function RectItem({
   item,
   isSelected,
   isInMultiSelect,
@@ -246,7 +347,7 @@ function RectItem({
       />
     </Group>
   );
-}
+}, rectItemPropsEqual);
 
 type StickyItemProps = {
   item: BoardItem;
@@ -268,7 +369,7 @@ type StickyItemProps = {
   onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
-function StickyItem({
+const StickyItem = memo(function StickyItem({
   item,
   isSelected,
   isInMultiSelect,
@@ -367,7 +468,7 @@ function StickyItem({
       />
     </Group>
   );
-}
+}, stickyItemPropsEqual);
 
 // ─── TextItem sub-component ───────────────────────────────────────────────────
 
@@ -391,7 +492,7 @@ type TextItemProps = {
   onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
-function TextItem({
+const TextItem = memo(function TextItem({
   item,
   isSelected,
   isInMultiSelect,
@@ -500,7 +601,7 @@ function TextItem({
       />
     </Group>
   );
-}
+}, stickyItemPropsEqual);
 
 // ─── FrameItem sub-component ──────────────────────────────────────────────────
 
@@ -521,7 +622,7 @@ type FrameItemProps = {
   onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
-function FrameItem({
+const FrameItem = memo(function FrameItem({
   item,
   isSelected,
   isInMultiSelect,
@@ -625,11 +726,11 @@ function FrameItem({
       />
     </Group>
   );
-}
+}, frameItemPropsEqual);
 
 // ─── CircleItem sub-component ──────────────────────────────────────────────────
 
-function CircleItem({
+const CircleItem = memo(function CircleItem({
   item,
   isSelected,
   isInMultiSelect,
@@ -714,7 +815,7 @@ function CircleItem({
       />
     </Group>
   );
-}
+}, rectItemPropsEqual);
 
 // ─── LineItem sub-component ────────────────────────────────────────────────────
 
@@ -736,7 +837,7 @@ type LineItemProps = {
   onItemDragStart: (id: string, startX: number, startY: number) => void;
 };
 
-function LineItem({
+const LineItem = memo(function LineItem({
   item,
   isSelected,
   isInMultiSelect,
@@ -859,14 +960,14 @@ function LineItem({
       )}
     </Group>
   );
-}
+}, rectItemPropsEqual);
 
 // ─── HeartItem sub-component ───────────────────────────────────────────────────
 
 // Heart SVG path normalized to a 100×100 bounding box
 const HEART_PATH = "M 50,100 C 25,76 0,56 0,33 C 0,13 12,0 30,0 C 40,0 48,6 50,17 C 52,6 60,0 70,0 C 88,0 100,13 100,33 C 100,56 75,76 50,100 Z";
 
-function HeartItem({
+const HeartItem = memo(function HeartItem({
   item,
   isSelected,
   isInMultiSelect,
@@ -958,7 +1059,7 @@ function HeartItem({
       />
     </Group>
   );
-}
+}, rectItemPropsEqual);
 
 // ─── Main canvas component ────────────────────────────────────────────────────
 
@@ -1032,6 +1133,15 @@ export function BoardCanvas({
   const [frameTitleEditId, setFrameTitleEditId] = useState<string | null>(null);
   const [frameTitleValue, setFrameTitleValue] = useState("");
   const [selectionBox, setSelectionBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  // Viewport bounding box in world coordinates (with buffer for smooth culling)
+  const CULL_BUFFER = 200;
+  const viewportWorldRect = useMemo(() => ({
+    x: (-stagePos.x / stageScale) - CULL_BUFFER,
+    y: (-stagePos.y / stageScale) - CULL_BUFFER,
+    w: (width / stageScale) + CULL_BUFFER * 2,
+    h: (height / stageScale) + CULL_BUFFER * 2,
+  }), [stagePos.x, stagePos.y, stageScale, width, height]);
 
   const stageRef = useRef<Konva.Stage | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1268,6 +1378,13 @@ export function BoardCanvas({
       groupDragRef.current = null;
     }
   }, []);
+
+  const handleTransformEnd = useCallback(
+    (id: string, x: number, y: number, w: number, h: number, rotation: number) => {
+      onItemTransform?.(id, x, y, w, h, rotation);
+    },
+    [onItemTransform]
+  );
 
   const handleWheel = useCallback(
     (e: { evt: WheelEvent }) => {
@@ -1542,9 +1659,48 @@ export function BoardCanvas({
     );
   }, [activeTool, connectSourceId, connectPreviewPos, effectiveItemsById]);
 
-  // Split items for z-ordering: frames behind everything else
-  const frameItems = useMemo(() => items.filter((i) => i.type === "frame"), [items]);
-  const nonFrameItems = useMemo(() => items.filter((i) => i.type !== "frame"), [items]);
+  // Viewport culling: only render items visible in the viewport (+ buffer),
+  // selected items, AI-animating items, and endpoints of visible connectors.
+  const { visibleFrameItems, visibleNonFrameItems, visibleConnectors } = useMemo(() => {
+    const selectedSet = new Set(selectedIds);
+    const aiIdSet = new Set(aiCreatedIds);
+
+    // First pass: determine which connectors are visible
+    const visConns: Connector[] = [];
+    const connectorItemIds = new Set<string>();
+    for (const conn of connectors) {
+      const fromItem = effectiveItemsById[conn.fromId];
+      const toItem = effectiveItemsById[conn.toId];
+      if (!fromItem || !toItem) continue;
+      const fb = getItemBounds(fromItem);
+      const tb = getItemBounds(toItem);
+      const minX = Math.min(fb.x, tb.x);
+      const minY = Math.min(fb.y, tb.y);
+      const maxX = Math.max(fb.x + fb.w, tb.x + tb.w);
+      const maxY = Math.max(fb.y + fb.h, tb.y + tb.h);
+      if (rectsIntersect(viewportWorldRect, { x: minX, y: minY, w: maxX - minX, h: maxY - minY })) {
+        visConns.push(conn);
+        connectorItemIds.add(conn.fromId);
+        connectorItemIds.add(conn.toId);
+      }
+    }
+
+    // Second pass: filter items
+    const visFrames: BoardItem[] = [];
+    const visNonFrames: BoardItem[] = [];
+    for (const item of items) {
+      const bounds = getItemBounds(effectiveItemsById[item.id] ?? item);
+      const isVisible = rectsIntersect(viewportWorldRect, bounds);
+      const shouldRender = isVisible || selectedSet.has(item.id) || aiIdSet.has(item.id) || connectorItemIds.has(item.id);
+      if (!shouldRender) continue;
+      if (item.type === "frame") {
+        visFrames.push(item);
+      } else {
+        visNonFrames.push(item);
+      }
+    }
+    return { visibleFrameItems: visFrames, visibleNonFrameItems: visNonFrames, visibleConnectors: visConns };
+  }, [items, effectiveItemsById, viewportWorldRect, selectedIds, connectors, aiCreatedIds]);
 
   useEffect(() => {
     if (editingId && textareaRef.current) {
@@ -1602,7 +1758,7 @@ export function BoardCanvas({
           <Line points={gridLines.horizontal} stroke="#f3f4f6" strokeWidth={1} listening={false} />
 
           {/* Frames — rendered first so they appear behind all other content */}
-          {frameItems.map((item) => {
+          {visibleFrameItems.map((item) => {
             const displayItem = effectiveItemsById[item.id] ?? item;
             const remoteEntry = remoteDragging[item.id];
             const isSelected = selectedIds.includes(item.id);
@@ -1622,7 +1778,7 @@ export function BoardCanvas({
                 onLocalDragEnd={handleLocalDragEnd}
                 onDblClick={handleFrameDblClick}
                 onGroupMount={handleGroupMount}
-                onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                onTransformEnd={handleTransformEnd}
                 onItemDragStart={handleItemDragStart}
               />
             );
@@ -1632,7 +1788,7 @@ export function BoardCanvas({
           {previewLine}
 
           {/* Connectors — rendered before items so items appear on top */}
-          {connectors.map((conn) => {
+          {visibleConnectors.map((conn) => {
             const fromItem = effectiveItemsById[conn.fromId];
             const toItem = effectiveItemsById[conn.toId];
             if (!fromItem || !toItem) return null;
@@ -1643,13 +1799,13 @@ export function BoardCanvas({
                 fromItem={fromItem}
                 toItem={toItem}
                 isSelected={conn.id === selectedConnectorId}
-                onSelect={onSelectConnector ?? (() => {})}
+                onSelect={onSelectConnector ?? NOOP}
               />
             );
           })}
 
           {/* Board items (stickies, rects, text) */}
-          {nonFrameItems.map((item) => {
+          {visibleNonFrameItems.map((item) => {
             const isSelected = selectedIds.includes(item.id);
             const isInMultiSelect = isSelected && selectedIds.length > 1;
             const isConnectSource = item.id === connectSourceId;
@@ -1673,7 +1829,7 @@ export function BoardCanvas({
                   onLocalDragMove={handleLocalDragMove}
                   onLocalDragEnd={handleLocalDragEnd}
                   onGroupMount={handleGroupMount}
-                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onTransformEnd={handleTransformEnd}
                   onItemDragStart={handleItemDragStart}
                 />
               );
@@ -1696,7 +1852,7 @@ export function BoardCanvas({
                   onLocalDragMove={handleLocalDragMove}
                   onLocalDragEnd={handleLocalDragEnd}
                   onGroupMount={handleGroupMount}
-                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onTransformEnd={handleTransformEnd}
                   onItemDragStart={handleItemDragStart}
                 />
               );
@@ -1719,7 +1875,7 @@ export function BoardCanvas({
                   onLocalDragMove={handleLocalDragMove}
                   onLocalDragEnd={handleLocalDragEnd}
                   onGroupMount={handleGroupMount}
-                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onTransformEnd={handleTransformEnd}
                   onItemDragStart={handleItemDragStart}
                 />
               );
@@ -1742,7 +1898,7 @@ export function BoardCanvas({
                   onLocalDragMove={handleLocalDragMove}
                   onLocalDragEnd={handleLocalDragEnd}
                   onGroupMount={handleGroupMount}
-                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onTransformEnd={handleTransformEnd}
                   onItemDragStart={handleItemDragStart}
                 />
               );
@@ -1767,7 +1923,7 @@ export function BoardCanvas({
                   onLocalDragMove={handleLocalDragMove}
                   onLocalDragEnd={handleLocalDragEnd}
                   onGroupMount={handleGroupMount}
-                  onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                  onTransformEnd={handleTransformEnd}
                   onItemDragStart={handleItemDragStart}
                 />
               );
@@ -1791,7 +1947,7 @@ export function BoardCanvas({
                 onLocalDragMove={handleLocalDragMove}
                 onLocalDragEnd={handleLocalDragEnd}
                 onGroupMount={handleGroupMount}
-                onTransformEnd={(id, x, y, w, h, rotation) => onItemTransform?.(id, x, y, w, h, rotation)}
+                onTransformEnd={handleTransformEnd}
                 onItemDragStart={handleItemDragStart}
               />
             );
