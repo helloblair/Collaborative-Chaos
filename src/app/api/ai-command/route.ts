@@ -385,7 +385,7 @@ export async function POST(req: NextRequest) {
         activeReservations.push(data.area as { x: number; y: number; w: number; h: number });
       }
     }
-    if (staleDeletes.length > 0) Promise.all(staleDeletes).catch(() => {});
+    if (staleDeletes.length > 0) await Promise.all(staleDeletes).catch(() => {});
     await adminDb.doc(`${reservationsPath}/${reservationId}`).set({
       area: { x: vb.x, y: vb.y, w: vb.width, h: vb.height },
       createdAt: now, type: "reservation",
