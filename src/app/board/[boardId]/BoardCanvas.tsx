@@ -261,7 +261,7 @@ type RectItemProps = {
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
-  activeTool: "select" | "connect" | "frame";
+  activeTool: "select" | "connect" | "frame" | "pan";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string, x: number, y: number) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
@@ -310,7 +310,7 @@ const RectItem = memo(function RectItem({
         onItemDragStart(item.id, e.target.x(), e.target.y());
       }}
       onClick={(e) => {
-        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        if (activeTool !== "connect" && activeTool !== "pan") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
       onDragMove={(e) => {
@@ -366,7 +366,7 @@ type StickyItemProps = {
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
-  activeTool: "select" | "connect" | "frame";
+  activeTool: "select" | "connect" | "frame" | "pan";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string, x: number, y: number) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
@@ -417,10 +417,10 @@ const StickyItem = memo(function StickyItem({
         onItemDragStart(item.id, e.target.x(), e.target.y());
       }}
       onClick={(e) => {
-        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        if (activeTool !== "connect" && activeTool !== "pan") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
-      onDblClick={() => activeTool !== "connect" && onDblClick(item)}
+      onDblClick={() => activeTool !== "connect" && activeTool !== "pan" && onDblClick(item)}
       onDragMove={(e) => {
         onDragMove(e.target.x(), e.target.y());
         onLocalDragMove(item.id, e.target.x(), e.target.y());
@@ -465,11 +465,12 @@ const StickyItem = memo(function StickyItem({
         width={w - STICKY_PADDING * 2}
         height={h - STICKY_PADDING * 2}
         text={item.text ?? "Sticky"}
-        fontSize={14}
+        fontSize={w <= 140 ? 11 : 14}
         fontFamily="sans-serif"
         fill="#1c1917"
         listening={false}
         wrap="word"
+        ellipsis={true}
       />
     </Group>
   );
@@ -489,7 +490,7 @@ type TextItemProps = {
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
-  activeTool: "select" | "connect" | "frame";
+  activeTool: "select" | "connect" | "frame" | "pan";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string, x: number, y: number) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
@@ -551,10 +552,10 @@ const TextItem = memo(function TextItem({
         onItemDragStart(item.id, e.target.x(), e.target.y());
       }}
       onClick={(e) => {
-        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        if (activeTool !== "connect" && activeTool !== "pan") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
-      onDblClick={() => activeTool !== "connect" && onDblClick(item)}
+      onDblClick={() => activeTool !== "connect" && activeTool !== "pan" && onDblClick(item)}
       onDragMove={(e) => {
         onDragMove(e.target.x(), e.target.y());
         onLocalDragMove(item.id, e.target.x(), e.target.y());
@@ -618,7 +619,7 @@ type FrameItemProps = {
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
-  activeTool: "select" | "connect" | "frame";
+  activeTool: "select" | "connect" | "frame" | "pan";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string, x: number, y: number) => void;
   onDblClick: (item: BoardItem) => void;
@@ -776,7 +777,7 @@ const CircleItem = memo(function CircleItem({
         onItemDragStart(item.id, e.target.x(), e.target.y());
       }}
       onClick={(e) => {
-        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        if (activeTool !== "connect" && activeTool !== "pan") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
       onDragMove={(e) => {
@@ -834,7 +835,7 @@ type LineItemProps = {
   boardId: string;
   uid: string | null | undefined;
   isRemoteDragging: boolean;
-  activeTool: "select" | "connect" | "frame";
+  activeTool: "select" | "connect" | "frame" | "pan";
   onLocalDragMove: (id: string, x: number, y: number) => void;
   onLocalDragEnd: (id: string, x: number, y: number) => void;
   onGroupMount: (id: string, node: Konva.Group | null) => void;
@@ -886,7 +887,7 @@ const LineItem = memo(function LineItem({
         onItemDragStart(item.id, e.target.x(), e.target.y());
       }}
       onClick={(e) => {
-        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        if (activeTool !== "connect" && activeTool !== "pan") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
       onDragMove={(e) => {
@@ -1013,7 +1014,7 @@ const HeartItem = memo(function HeartItem({
         onItemDragStart(item.id, e.target.x(), e.target.y());
       }}
       onClick={(e) => {
-        if (activeTool !== "connect") onSelect(item.id, e.evt.shiftKey);
+        if (activeTool !== "connect" && activeTool !== "pan") onSelect(item.id, e.evt.shiftKey);
         onItemClick?.(item.id);
       }}
       onDragMove={(e) => {
@@ -1083,7 +1084,7 @@ export type BoardCanvasProps = {
   boardId: string;
   remoteDragging?: Record<string, DraggingEntry>;
   connectors?: Connector[];
-  activeTool?: "select" | "connect" | "frame";
+  activeTool?: "select" | "connect" | "frame" | "pan";
   connectSourceId?: string | null;
   selectedConnectorId?: string | null;
   onSelectConnector?: (id: string) => void;
@@ -1097,6 +1098,10 @@ export type BoardCanvasProps = {
   textEditingId?: string | null;
   /** IDs of objects just created by an AI command — triggers staggered entrance animation. */
   aiCreatedIds?: string[];
+  /** IDs of objects to auto-center the viewport on after AI generation. */
+  centerOnIds?: string[];
+  /** Called after the centering animation completes so the parent can clear the IDs. */
+  onCenterComplete?: () => void;
 };
 
 export function BoardCanvas({
@@ -1127,6 +1132,8 @@ export function BoardCanvas({
   frameTitleEditingId = null,
   textEditingId = null,
   aiCreatedIds = [],
+  centerOnIds = [],
+  onCenterComplete,
 }: BoardCanvasProps) {
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
@@ -1256,6 +1263,81 @@ export function BoardCanvas({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiCreatedIds, items]);
+
+  // Auto-center viewport on AI-created items once they arrive from Firestore
+  const centerAnimatedRef = useRef(false);
+  useEffect(() => {
+    if (centerOnIds.length === 0) {
+      centerAnimatedRef.current = false;
+      return;
+    }
+    if (centerAnimatedRef.current) return;
+
+    // Check if all centerOnIds are present in items
+    const targetItems = centerOnIds
+      .map((id) => items.find((i) => i.id === id))
+      .filter(Boolean) as BoardItem[];
+    if (targetItems.length < centerOnIds.length) return; // not all loaded yet
+
+    centerAnimatedRef.current = true;
+
+    // Compute bounding box of all target items
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const item of targetItems) {
+      const bounds = getItemBounds(item);
+      minX = Math.min(minX, bounds.x);
+      minY = Math.min(minY, bounds.y);
+      maxX = Math.max(maxX, bounds.x + bounds.w);
+      maxY = Math.max(maxY, bounds.y + bounds.h);
+    }
+
+    // Add padding
+    const PAD = 80;
+    minX -= PAD;
+    minY -= PAD;
+    maxX += PAD;
+    maxY += PAD;
+
+    const bbWidth = maxX - minX;
+    const bbHeight = maxY - minY;
+
+    // Guard against degenerate bounding boxes
+    if (!isFinite(bbWidth) || !isFinite(bbHeight) || bbWidth <= 0 || bbHeight <= 0) {
+      onCenterComplete?.();
+      return;
+    }
+
+    // Calculate target scale to fit content with breathing room (80% of viewport)
+    const scaleX = (width * 0.8) / bbWidth;
+    const scaleY = (height * 0.8) / bbHeight;
+    const targetScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min(scaleX, scaleY)));
+
+    // Calculate stage position to center the bounding box
+    const bbCenterX = (minX + maxX) / 2;
+    const bbCenterY = (minY + maxY) / 2;
+    const targetX = width / 2 - bbCenterX * targetScale;
+    const targetY = height / 2 - bbCenterY * targetScale;
+
+    const stage = stageRef.current;
+    if (stage) {
+      // Immediately sync React state to prevent viewport culling from hiding items
+      setStageScale(targetScale);
+      setStagePos({ x: targetX, y: targetY });
+      onViewportChangeRef.current?.({ x: targetX, y: targetY }, targetScale);
+
+      stage.to({
+        x: targetX,
+        y: targetY,
+        scaleX: targetScale,
+        scaleY: targetScale,
+        duration: 0.5,
+        onFinish: () => {
+          onCenterComplete?.();
+        },
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centerOnIds, items, width, height, onCenterComplete]);
 
   // Space key: toggle pan mode in select tool
   useEffect(() => {
@@ -1423,6 +1505,21 @@ export function BoardCanvas({
     (e: { target: { getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null; name: () => string } }) => {
       const clickedStage = (e.target as unknown) === stageRef.current;
       const clickedBg = e.target.name() === "bg";
+      const isPanMode = activeToolRef.current === "pan" || spaceHeldRef.current;
+
+      // In pan mode, allow panning from anywhere (including items)
+      if (isPanMode) {
+        const stage = stageRef.current;
+        if (!stage) return;
+        const pos = stage.getPointerPosition();
+        if (pos) {
+          isPanningRef.current = true;
+          panStartRef.current = { x: pos.x, y: pos.y };
+          stageStartRef.current = { x: stage.x(), y: stage.y() };
+        }
+        return;
+      }
+
       if (clickedStage || clickedBg) {
         const stage = stageRef.current;
         if (!stage) return;
@@ -1730,7 +1827,7 @@ export function BoardCanvas({
   }, [frameTitleEditId]);
 
   return (
-    <div className={`absolute inset-0 z-0${activeTool === "frame" ? " cursor-crosshair" : activeTool === "select" && !spaceHeldRef.current ? " cursor-default" : ""}`}>
+    <div className={`absolute inset-0 z-0${activeTool === "frame" ? " cursor-crosshair" : activeTool === "pan" ? " cursor-grab" : activeTool === "select" && !spaceHeldRef.current ? " cursor-default" : ""}`}>
       <Stage
         ref={stageRef}
         width={width}

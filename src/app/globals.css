@@ -26,3 +26,151 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans);
 }
+
+/* Toolbar tooltip — appears on hover after 300ms delay */
+.toolbar-btn {
+  position: relative;
+}
+.toolbar-btn .toolbar-tooltip {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 11px;
+  line-height: 1.3;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  transition-delay: 0s;
+  z-index: 50;
+}
+.toolbar-btn:hover .toolbar-tooltip {
+  opacity: 1;
+  transition-delay: 300ms;
+}
+
+/* Sorting Hat FAB glow animation */
+@keyframes hat-glow {
+  0%, 100% { box-shadow: 0 0 12px 2px rgba(217, 170, 60, 0.4), 0 0 24px 4px rgba(139, 92, 246, 0.15); }
+  50% { box-shadow: 0 0 18px 4px rgba(217, 170, 60, 0.6), 0 0 36px 8px rgba(139, 92, 246, 0.3); }
+}
+.hat-fab {
+  animation: hat-glow 3s ease-in-out infinite;
+}
+
+/* Sorting Hat typing shimmer */
+@keyframes hat-shimmer {
+  0% { opacity: 0.3; }
+  50% { opacity: 1; }
+  100% { opacity: 0.3; }
+}
+.hat-dot-1 { animation: hat-shimmer 1.4s ease-in-out infinite; }
+.hat-dot-2 { animation: hat-shimmer 1.4s ease-in-out 0.2s infinite; }
+.hat-dot-3 { animation: hat-shimmer 1.4s ease-in-out 0.4s infinite; }
+
+/* Chat panel slide */
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.chat-panel-enter {
+  animation: slide-in-right 0.3s ease-out forwards;
+}
+
+/* ─── Revelio! reveal animation ─────────────────────────────────────────────── */
+
+/* Container fade-in */
+@keyframes revelio-appear {
+  0% { opacity: 0; transform: scale(0.6); }
+  50% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.revelio-container {
+  animation: revelio-appear 0.5s ease-out forwards;
+}
+
+/* Main text: golden gradient with glow */
+@keyframes revelio-glow {
+  0% { text-shadow: 0 0 8px rgba(251, 191, 36, 0.8), 0 0 20px rgba(217, 119, 6, 0.4); }
+  50% { text-shadow: 0 0 16px rgba(251, 191, 36, 1), 0 0 40px rgba(217, 119, 6, 0.6), 0 0 60px rgba(168, 85, 247, 0.3); }
+  100% { text-shadow: 0 0 6px rgba(251, 191, 36, 0.5), 0 0 12px rgba(217, 119, 6, 0.2); }
+}
+.revelio-text {
+  background: linear-gradient(135deg, #fbbf24, #f59e0b, #d97706, #fbbf24);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: revelio-glow 1.5s ease-out forwards, revelio-gradient-shift 2s ease-in-out forwards;
+  font-family: "Georgia", serif;
+  font-style: italic;
+}
+@keyframes revelio-gradient-shift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+/* Sparkle particles bursting outward from center */
+.revelio-sparkle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fbbf24, #f59e0b);
+  pointer-events: none;
+  opacity: 0;
+}
+
+@keyframes sparkle-burst-1 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0); }
+  30% { opacity: 1; transform: translate(-18px, -14px) scale(1.2); }
+  100% { opacity: 0; transform: translate(-28px, -22px) scale(0); }
+}
+@keyframes sparkle-burst-2 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0); }
+  30% { opacity: 1; transform: translate(20px, -12px) scale(1); }
+  100% { opacity: 0; transform: translate(32px, -20px) scale(0); }
+}
+@keyframes sparkle-burst-3 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0); }
+  30% { opacity: 1; transform: translate(-12px, 16px) scale(0.8); }
+  100% { opacity: 0; transform: translate(-20px, 26px) scale(0); }
+}
+@keyframes sparkle-burst-4 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0); }
+  30% { opacity: 1; transform: translate(16px, 14px) scale(1.1); }
+  100% { opacity: 0; transform: translate(26px, 24px) scale(0); }
+}
+@keyframes sparkle-burst-5 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0); }
+  25% { opacity: 1; transform: translate(-24px, 2px) scale(0.9); }
+  100% { opacity: 0; transform: translate(-36px, 4px) scale(0); }
+}
+@keyframes sparkle-burst-6 {
+  0% { opacity: 0; transform: translate(0, 0) scale(0); }
+  25% { opacity: 1; transform: translate(24px, -2px) scale(0.7); }
+  100% { opacity: 0; transform: translate(38px, -4px) scale(0); }
+}
+
+.revelio-sparkle-1 { left: 50%; top: 50%; animation: sparkle-burst-1 0.7s ease-out 0.05s forwards; background: #fbbf24; }
+.revelio-sparkle-2 { left: 50%; top: 50%; animation: sparkle-burst-2 0.7s ease-out 0.1s forwards; background: #f59e0b; }
+.revelio-sparkle-3 { left: 50%; top: 50%; animation: sparkle-burst-3 0.7s ease-out 0.08s forwards; background: #a855f7; width: 5px; height: 5px; }
+.revelio-sparkle-4 { left: 50%; top: 50%; animation: sparkle-burst-4 0.7s ease-out 0.15s forwards; background: #fbbf24; }
+.revelio-sparkle-5 { left: 50%; top: 50%; animation: sparkle-burst-5 0.7s ease-out 0.02s forwards; background: #c084fc; width: 4px; height: 4px; }
+.revelio-sparkle-6 { left: 50%; top: 50%; animation: sparkle-burst-6 0.7s ease-out 0.12s forwards; background: #fbbf24; width: 5px; height: 5px; }
+
+/* Summary line fade-in (delayed to appear after sparkle burst) */
+@keyframes revelio-summary-in {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.revelio-summary {
+  opacity: 0;
+  animation: revelio-summary-in 0.3s ease-out 0.5s forwards;
+}

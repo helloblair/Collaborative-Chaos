@@ -28,8 +28,8 @@ export function computeGridLayout(
   const cols = options.columns ?? Math.ceil(Math.sqrt(objectIds.length));
   const startX = options.startX ?? 0;
   const startY = options.startY ?? 0;
-  const gapX = options.gapX ?? 20;
-  const gapY = options.gapY ?? 20;
+  const gapX = options.gapX ?? 40;
+  const gapY = options.gapY ?? 40;
   const numRows = Math.ceil(objectIds.length / cols);
 
   const colWidths = new Array<number>(cols).fill(0);
@@ -101,9 +101,9 @@ export function computeColumnLayout(
 
 // ─── Template layouts ─────────────────────────────────────────────────────────
 
-const SWOT_W = 340;
-const SWOT_H = 280;
-const SWOT_GAP = 24;
+const SWOT_W = 500;
+const SWOT_H = 420;
+const SWOT_GAP = 48;
 
 /** SWOT analysis: 2×2 grid of frames centered on the given point. */
 export function computeSWOTLayout(
@@ -124,9 +124,9 @@ export function computeSWOTLayout(
   };
 }
 
-const JOURNEY_W = 280;
-const JOURNEY_H = 360;
-const JOURNEY_GAP = 24;
+const JOURNEY_W = 320;
+const JOURNEY_H = 420;
+const JOURNEY_GAP = 48;
 
 /** User journey map: horizontal row of frames, one per stage, with connector metadata. */
 export function computeJourneyMapLayout(
@@ -153,9 +153,9 @@ export function computeJourneyMapLayout(
   return { frames, connectors };
 }
 
-const RETRO_W = 300;
-const RETRO_H = 500;
-const RETRO_GAP = 24;
+const RETRO_W = 360;
+const RETRO_H = 520;
+const RETRO_GAP = 48;
 
 /** Retrospective: 3-column frame layout centered on the given point. */
 export function computeRetroLayout(

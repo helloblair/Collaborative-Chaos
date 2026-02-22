@@ -17,7 +17,8 @@ import {
 // ---------------------------------------------------------------------------
 
 interface ViewportBounds { x: number; y: number; width: number; height: number; }
-interface AiCommandRequest { command: string; boardId: string; viewportObjects: BoardItem[]; viewportBounds: ViewportBounds; }
+interface ChatMessage { role: "user" | "assistant"; content: string; }
+interface AiCommandRequest { command: string; boardId: string; viewportObjects: BoardItem[]; viewportBounds: ViewportBounds; conversationHistory?: ChatMessage[]; }
 interface ActionResult { tool: string; id?: string; [key: string]: unknown; }
 
 // ---------------------------------------------------------------------------
@@ -242,8 +243,8 @@ function executeTool(
   vb: ViewportBounds
 ): { toolResult: unknown; action: ActionResult } {
   const at = new Date().toISOString();
-  const defaultX = vb.x + 20;
-  const defaultY = vb.y + 20;
+  const defaultX = vb.x + vb.width / 2 - 100;
+  const defaultY = vb.y + vb.height / 2 - 100;
   const itemsPath = `boards/${boardId}/items`;
   const connectorsPath = `boards/${boardId}/connectors`;
 
@@ -256,7 +257,7 @@ function executeTool(
         fill: STICKY_COLORS[(input.color as string) || "yellow"] ?? STICKY_COLORS.yellow,
         x: (input.x as number) ?? defaultX,
         y: (input.y as number) ?? defaultY,
-        width: 200, height: 200, createdBy: uid, updatedAt: at,
+        width: 140, height: 140, createdBy: uid, updatedAt: at,
       });
       return { toolResult: { success: true, id }, action: { tool: "createStickyNote", id } };
     }
@@ -361,7 +362,7 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Invalid request body" }, { status: 400 }); }
 
-  const { command, boardId, viewportObjects, viewportBounds } = body;
+  const { command, boardId, viewportObjects, viewportBounds, conversationHistory } = body;
   if (!command || !boardId || !viewportObjects || !viewportBounds) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
@@ -416,20 +417,36 @@ export async function POST(req: NextRequest) {
 
     const messages: OpenAI.ChatCompletionMessageParam[] = [
       { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userContent },
     ];
+
+    // Include recent conversation history for multi-turn chat context.
+    // Limit to last 4 messages to prevent prior tool-heavy exchanges from
+    // confusing the model on subsequent requests (BUG: repeated SWOT analyses
+    // rendered empty because the model saw a complete prior SWOT in history
+    // and skipped creating sticky notes).
+    if (conversationHistory && conversationHistory.length > 0) {
+      const recentHistory = conversationHistory.slice(-4);
+      for (const msg of recentHistory) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    }
+
+    messages.push({ role: "user", content: userContent });
     const results: ActionResult[] = [];
 
     // All Firestore writes go through the REST batch writer (user ID token, no admin credentials needed)
     const writer = new RestBatchWriter(PROJECT_ID, token);
 
     // 6. Agentic loop — up to 10 turns
+    // First turn: force the model to call a tool (prevents it from just
+    // describing actions in text without executing them).
     for (let turn = 0; turn < 10; turn++) {
       const response = await getOpenAI().chat.completions.create({
         model: "gpt-4.1-nano-2025-04-14",
         max_tokens: 4096,
         messages,
         tools: AI_TOOLS,
+        tool_choice: turn === 0 ? "required" : "auto",
         parallel_tool_calls: false,
       });
 
@@ -440,7 +457,7 @@ export async function POST(req: NextRequest) {
       messages.push(assistantMessage);
 
       // If no tool calls, the model is done
-      if (choice.finish_reason !== "tool_calls" || !assistantMessage.tool_calls?.length) break;
+      if (!assistantMessage.tool_calls?.length) break;
 
       for (const toolCall of assistantMessage.tool_calls) {
         if (toolCall.type !== "function") continue;
@@ -467,7 +484,7 @@ export async function POST(req: NextRequest) {
 
           const positions = computeGridLayout(ids, objectMap, {
             columns: (input.columns as number) || undefined,
-            startX: vb.x + 20, startY: vb.y + 20, gapX: 20, gapY: 20,
+            startX: vb.x + 40, startY: vb.y + 40, gapX: 40, gapY: 40,
           });
           for (const [id, pos] of positions) {
             writer.update(itemsPath, id, { x: pos.x, y: pos.y, updatedAt: at });
@@ -481,6 +498,7 @@ export async function POST(req: NextRequest) {
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const layout = computeSWOTLayout(centerX, centerY);
           const frameIds: string[] = [];
+          const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
           for (const frame of layout.frames) {
             const id = nanoid(); frameIds.push(id);
             writer.set(itemsPath, id, {
@@ -488,9 +506,27 @@ export async function POST(req: NextRequest) {
               width: frame.width, height: frame.height, fill: frame.color,
               createdBy: uid, updatedAt: at,
             });
+            frameDetails.push({ id, title: frame.title, x: frame.x, y: frame.y, width: frame.width, height: frame.height });
             results.push({ tool: "createSWOTTemplate", id });
           }
-          toolResultContent = JSON.stringify({ success: true, frameIds });
+          // Create outer wrapper frame
+          const swotMinX = Math.min(...layout.frames.map(f => f.x));
+          const swotMinY = Math.min(...layout.frames.map(f => f.y));
+          const swotMaxX = Math.max(...layout.frames.map(f => f.x + f.width));
+          const swotMaxY = Math.max(...layout.frames.map(f => f.y + f.height));
+          const swotWrapperId = nanoid();
+          writer.set(itemsPath, swotWrapperId, {
+            type: "frame", title: "SWOT Analysis",
+            x: swotMinX - 40, y: swotMinY - 40,
+            width: (swotMaxX - swotMinX) + 80, height: (swotMaxY - swotMinY) + 80,
+            createdBy: uid, updatedAt: at,
+          });
+          frameIds.unshift(swotWrapperId);
+          results.push({ tool: "createSWOTTemplate", id: swotWrapperId });
+          toolResultContent = JSON.stringify({
+            success: true, frameIds, frames: frameDetails,
+            hint: "Frames created. Now use createStickyNote to add 2-3 relevant sticky notes INSIDE each frame. Sticky notes are 140x140. Place first note at x=frame.x+20, y=frame.y+40. Space additional notes 150px apart vertically (y+150 for each). For 2 columns, offset second column at x=frame.x+170.",
+          });
 
         // ── createJourneyMap ────────────────────────────────────────────────
         } else if (toolName === "createJourneyMap") {
@@ -499,12 +535,14 @@ export async function POST(req: NextRequest) {
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const layout = computeJourneyMapLayout(stages, centerX, centerY);
           const frameIds: string[] = [];
+          const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
           for (const frame of layout.frames) {
             const id = nanoid(); frameIds.push(id);
             writer.set(itemsPath, id, {
               type: "frame", title: frame.title, x: frame.x, y: frame.y,
               width: frame.width, height: frame.height, createdBy: uid, updatedAt: at,
             });
+            frameDetails.push({ id, title: frame.title, x: frame.x, y: frame.y, width: frame.width, height: frame.height });
             results.push({ tool: "createJourneyMap", id });
           }
           for (const conn of layout.connectors) {
@@ -514,7 +552,24 @@ export async function POST(req: NextRequest) {
               style: "arrow", color: "#64748B", createdBy: uid, createdAt: at,
             });
           }
-          toolResultContent = JSON.stringify({ success: true, frameIds });
+          // Create outer wrapper frame
+          const jmMinX = Math.min(...layout.frames.map(f => f.x));
+          const jmMinY = Math.min(...layout.frames.map(f => f.y));
+          const jmMaxX = Math.max(...layout.frames.map(f => f.x + f.width));
+          const jmMaxY = Math.max(...layout.frames.map(f => f.y + f.height));
+          const jmWrapperId = nanoid();
+          writer.set(itemsPath, jmWrapperId, {
+            type: "frame", title: "User Journey Map",
+            x: jmMinX - 40, y: jmMinY - 40,
+            width: (jmMaxX - jmMinX) + 80, height: (jmMaxY - jmMinY) + 80,
+            createdBy: uid, updatedAt: at,
+          });
+          frameIds.unshift(jmWrapperId);
+          results.push({ tool: "createJourneyMap", id: jmWrapperId });
+          toolResultContent = JSON.stringify({
+            success: true, frameIds, frames: frameDetails,
+            hint: "Frames created with connectors. Now use createStickyNote to add 1-2 relevant sticky notes INSIDE each stage frame. Sticky notes are 140x140. Place first note at x=frame.x+20, y=frame.y+40. Space additional notes 150px apart vertically.",
+          });
 
         // ── createRetroTemplate ─────────────────────────────────────────────
         } else if (toolName === "createRetroTemplate") {
@@ -522,6 +577,7 @@ export async function POST(req: NextRequest) {
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const layout = computeRetroLayout(centerX, centerY);
           const frameIds: string[] = [];
+          const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
           for (const frame of layout.frames) {
             const id = nanoid(); frameIds.push(id);
             writer.set(itemsPath, id, {
@@ -529,9 +585,27 @@ export async function POST(req: NextRequest) {
               width: frame.width, height: frame.height, fill: frame.color,
               createdBy: uid, updatedAt: at,
             });
+            frameDetails.push({ id, title: frame.title, x: frame.x, y: frame.y, width: frame.width, height: frame.height });
             results.push({ tool: "createRetroTemplate", id });
           }
-          toolResultContent = JSON.stringify({ success: true, frameIds });
+          // Create outer wrapper frame
+          const retroMinX = Math.min(...layout.frames.map(f => f.x));
+          const retroMinY = Math.min(...layout.frames.map(f => f.y));
+          const retroMaxX = Math.max(...layout.frames.map(f => f.x + f.width));
+          const retroMaxY = Math.max(...layout.frames.map(f => f.y + f.height));
+          const retroWrapperId = nanoid();
+          writer.set(itemsPath, retroWrapperId, {
+            type: "frame", title: "Retrospective",
+            x: retroMinX - 40, y: retroMinY - 40,
+            width: (retroMaxX - retroMinX) + 80, height: (retroMaxY - retroMinY) + 80,
+            createdBy: uid, updatedAt: at,
+          });
+          frameIds.unshift(retroWrapperId);
+          results.push({ tool: "createRetroTemplate", id: retroWrapperId });
+          toolResultContent = JSON.stringify({
+            success: true, frameIds, frames: frameDetails,
+            hint: "Frames created. Now use createStickyNote to add 2-3 relevant sticky notes INSIDE each column. Sticky notes are 140x140. Place first note at x=frame.x+20, y=frame.y+40. Space additional notes 150px apart vertically.",
+          });
 
         // ── All other sync tools ────────────────────────────────────────────
         } else {
@@ -547,12 +621,25 @@ export async function POST(req: NextRequest) {
           content: toolResultContent,
         });
       }
-
-      await writer.flush();
     }
 
+    // Flush all remaining writes in one batch so frames + content stickies
+    // arrive together (prevents empty-frame flash on the client).
+    await writer.flush();
+
     const createdIds = results.filter((r) => r.id).map((r) => r.id as string);
-    return NextResponse.json({ success: true, results, createdIds });
+
+    // Extract the AI's final text reply from the last assistant message
+    let reply = "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === "assistant" && typeof msg.content === "string" && msg.content.trim()) {
+        reply = msg.content.trim();
+        break;
+      }
+    }
+
+    return NextResponse.json({ success: true, results, createdIds, reply });
 
   } catch (err) {
     const message = err instanceof Error ? err.message : "AI command failed";
