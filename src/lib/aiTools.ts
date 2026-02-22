@@ -298,7 +298,7 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
     function: {
       name: "createSWOTTemplate",
       description:
-        "Create a complete SWOT analysis template: 4 frames arranged in a 2x2 grid (Strengths, Weaknesses, Opportunities, Threats). The server computes exact positions using the layout engine. Use this instead of calling createFrame 4 times.",
+        "Create a SWOT analysis template with 4 frames (Strengths, Weaknesses, Opportunities, Threats). If content is provided, sticky notes are automatically created with perfect grid layout inside each frame. Do NOT call createStickyNote separately after this tool.",
       strict: true,
       parameters: {
         type: "object",
@@ -311,8 +311,37 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
             type: ["number", "null"],
             description: "Y coordinate of the center of the 2x2 grid. Defaults to viewport center.",
           },
+          content: {
+            type: ["object", "null"],
+            description:
+              "Sticky note content for each quadrant. Pass null for a blank template.",
+            properties: {
+              strengths: {
+                type: "array",
+                items: { type: "string" },
+                description: "Sticky note texts for the Strengths quadrant.",
+              },
+              weaknesses: {
+                type: "array",
+                items: { type: "string" },
+                description: "Sticky note texts for the Weaknesses quadrant.",
+              },
+              opportunities: {
+                type: "array",
+                items: { type: "string" },
+                description: "Sticky note texts for the Opportunities quadrant.",
+              },
+              threats: {
+                type: "array",
+                items: { type: "string" },
+                description: "Sticky note texts for the Threats quadrant.",
+              },
+            },
+            required: ["strengths", "weaknesses", "opportunities", "threats"],
+            additionalProperties: false,
+          },
         },
-        required: ["centerX", "centerY"],
+        required: ["centerX", "centerY", "content"],
         additionalProperties: false,
       },
     },
@@ -323,7 +352,7 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
     function: {
       name: "createJourneyMap",
       description:
-        "Create a user journey map template: a horizontal row of labeled frames, one per stage, with arrows connecting them. The server computes exact positions using the layout engine.",
+        "Create a user journey map template: horizontal frames with arrows. If stageContent is provided, sticky notes are automatically created inside each stage frame. Do NOT call createStickyNote separately after this tool.",
       strict: true,
       parameters: {
         type: "object",
@@ -341,8 +370,25 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
             type: ["number", "null"],
             description: "Y coordinate of the center of the row. Defaults to viewport center.",
           },
+          stageContent: {
+            type: ["array", "null"],
+            items: {
+              type: "object",
+              properties: {
+                stickies: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Sticky note texts for this stage.",
+                },
+              },
+              required: ["stickies"],
+              additionalProperties: false,
+            },
+            description:
+              "Array of sticky content objects, one per stage (same order as stages). Pass null for a blank template.",
+          },
         },
-        required: ["stages", "centerX", "centerY"],
+        required: ["stages", "centerX", "centerY", "stageContent"],
         additionalProperties: false,
       },
     },
@@ -353,7 +399,7 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
     function: {
       name: "createRetroTemplate",
       description:
-        "Create a retrospective template: 3 frames in a horizontal layout (What Went Well, What Didn't, Action Items). The server computes exact positions using the layout engine.",
+        "Create a retrospective template: 3 frames (What Went Well, What Didn't, Action Items). If content is provided, sticky notes are automatically created inside each column. Do NOT call createStickyNote separately after this tool.",
       strict: true,
       parameters: {
         type: "object",
@@ -366,8 +412,32 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
             type: ["number", "null"],
             description: "Y coordinate of the center of the layout. Defaults to viewport center.",
           },
+          content: {
+            type: ["object", "null"],
+            description:
+              "Sticky note content for each column. Pass null for a blank template.",
+            properties: {
+              wentWell: {
+                type: "array",
+                items: { type: "string" },
+                description: "Sticky note texts for 'What Went Well'.",
+              },
+              didntGoWell: {
+                type: "array",
+                items: { type: "string" },
+                description: "Sticky note texts for 'What Didn't'.",
+              },
+              actionItems: {
+                type: "array",
+                items: { type: "string" },
+                description: "Sticky note texts for 'Action Items'.",
+              },
+            },
+            required: ["wentWell", "didntGoWell", "actionItems"],
+            additionalProperties: false,
+          },
         },
-        required: ["centerX", "centerY"],
+        required: ["centerX", "centerY", "content"],
         additionalProperties: false,
       },
     },
@@ -378,26 +448,27 @@ export const SYSTEM_PROMPT = `You are the Sorting Hat — a wise, ancient, and s
 
 CRITICAL: You MUST use the provided tools to perform actions. NEVER just describe what you would do — actually call the tools. Every user request that involves creating, moving, arranging, or modifying board elements MUST result in tool calls. Do not respond with only text when tools should be used.
 
-IMPORTANT: Treat each user message as an INDEPENDENT request. Even if a previous message asked for the same type of template, you MUST fully execute ALL tool calls again — create the template AND populate it with sticky notes. Never skip steps because a similar request was handled before.
+IMPORTANT: Treat each user message as an INDEPENDENT request. Even if a previous message asked for the same type of template, you MUST fully execute ALL tool calls again. Never skip steps because a similar request was handled before.
 
 For template commands, ALWAYS use the dedicated template tools:
-- "SWOT analysis" → call createSWOTTemplate (creates 4 pre-positioned frames)
-- "user journey map" or "journey map" → call createJourneyMap with stage names
-- "retrospective" or "retro" → call createRetroTemplate (creates 3 pre-positioned frames)
+- "SWOT analysis" → call createSWOTTemplate with content parameter
+- "user journey map" or "journey map" → call createJourneyMap with stageContent parameter
+- "retrospective" or "retro" → call createRetroTemplate with content parameter
 
-IMPORTANT — Populating templates with content:
-When the user asks for a template about a SPECIFIC TOPIC (e.g. "SWOT analysis for a coffee shop"), you MUST:
-1. First call the template tool to create the frames
-2. Then call createStickyNote MULTIPLE TIMES to add 2-4 sticky notes inside EACH frame section with relevant content for that topic
-3. Position sticky notes INSIDE their parent frame using the frame coordinates from the tool result. Each frame's position and size are returned — place sticky notes within those bounds, offset by ~20px from the top-left, spaced ~150px apart vertically. Sticky notes are 140x140.
+IMPORTANT — Template content:
+When the user asks for a template about a SPECIFIC TOPIC (e.g. "SWOT analysis for a coffee shop"), include the content directly in the template tool call. Each template tool accepts a content/stageContent parameter where you provide the sticky note texts for each section. The server will automatically position all sticky notes in a perfect grid layout inside each frame — do NOT call createStickyNote separately after a template tool.
+
+When the user asks for a BLANK template (e.g. "create a blank SWOT"), pass null for the content parameter.
+
+Aim for 2-4 sticky notes per section. Keep each sticky note text concise (under 40 characters ideally, 60 max).
 
 For arranging existing objects, call arrangeInGrid — the server will fetch actual object sizes and compute optimal positions.
 
 For other layout commands, plan the full layout first, then execute each creation/move as individual tool calls. Position new objects near the CENTER of the user's viewport, spread them with consistent 40px gaps between items. Avoid clustering everything at the top-left corner. If active space reservations are listed, avoid placing objects in those areas. If you need more context about existing objects, call getBoardState first.
 
-After ALL tools are executed (including content sticky notes), provide a brief in-character reply (1-3 sentences) describing what you did. Be theatrical but concise. Only reply with text after you have finished ALL tool calls.
+After ALL tools are executed, provide a brief in-character reply (1-3 sentences) describing what you did. Be theatrical but concise. Only reply with text after you have finished ALL tool calls.
 
 Voice examples:
-- "Four frames, sorted into place, each filled with wisdom! Your SWOT analysis for the coffee shop awaits."
-- "Three sticky notes, summoned and placed with care. May they serve you well."
+- "Four quadrants, sorted and filled with wisdom! Your SWOT analysis for the coffee shop awaits."
+- "Three columns summoned, each bearing insights. May this retrospective guide your path forward."
 - "Alas, that magic is beyond my brim. I can create, move, and arrange — but I cannot peer into the future."`;

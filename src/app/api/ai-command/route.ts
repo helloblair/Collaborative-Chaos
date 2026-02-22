@@ -9,6 +9,7 @@ import {
   computeSWOTLayout,
   computeJourneyMapLayout,
   computeRetroLayout,
+  computeContainerChildLayout,
   type BoardObjectMap,
 } from "@/lib/layoutEngine";
 
@@ -228,6 +229,53 @@ async function firestoreBatchGet(
     missing?: string;
   }>;
   return data.map((r) => (r.found ? fromFSDoc(r.found) : null));
+}
+
+// ---------------------------------------------------------------------------
+// Sticky-in-frame helper
+// ---------------------------------------------------------------------------
+
+/** Default sticky color per frame title. */
+const FRAME_STICKY_COLOR: Record<string, string> = {
+  Strengths: "green", Weaknesses: "pink",
+  Opportunities: "blue", Threats: "orange",
+  "What Went Well": "green", "What Didn't": "pink", "Action Items": "blue",
+};
+
+/**
+ * Create sticky notes inside a frame with deterministic grid positioning.
+ * Returns the array of created sticky IDs.
+ */
+function createStickiesInFrame(
+  frame: { x: number; y: number; width: number; height: number; title?: string },
+  texts: string[],
+  opts: { writer: RestBatchWriter; itemsPath: string; uid: string; at: string; color?: string },
+): string[] {
+  if (texts.length === 0) return [];
+
+  const positions = computeContainerChildLayout({
+    containerX: frame.x,
+    containerY: frame.y,
+    containerW: frame.width,
+    containerH: frame.height,
+    childCount: texts.length,
+  });
+
+  const colorName = opts.color ?? FRAME_STICKY_COLOR[frame.title ?? ""] ?? "yellow";
+  const fill = STICKY_COLORS[colorName] ?? STICKY_COLORS.yellow;
+  const ids: string[] = [];
+
+  for (let i = 0; i < texts.length; i++) {
+    const id = nanoid();
+    ids.push(id);
+    opts.writer.set(opts.itemsPath, id, {
+      type: "sticky", text: texts[i], fill,
+      x: positions[i].x, y: positions[i].y,
+      width: positions[i].width, height: positions[i].height,
+      createdBy: opts.uid, updatedAt: opts.at,
+    });
+  }
+  return ids;
 }
 
 // ---------------------------------------------------------------------------
@@ -498,8 +546,19 @@ export async function POST(req: NextRequest) {
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const layout = computeSWOTLayout(centerX, centerY);
           const frameIds: string[] = [];
+          const allStickyIds: string[] = [];
           const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
-          for (const frame of layout.frames) {
+
+          const content = input.content as {
+            strengths: string[]; weaknesses: string[];
+            opportunities: string[]; threats: string[];
+          } | null;
+          const contentArrays = content
+            ? [content.strengths, content.weaknesses, content.opportunities, content.threats]
+            : [[], [], [], []];
+
+          for (let fi = 0; fi < layout.frames.length; fi++) {
+            const frame = layout.frames[fi];
             const id = nanoid(); frameIds.push(id);
             writer.set(itemsPath, id, {
               type: "frame", title: frame.title, x: frame.x, y: frame.y,
@@ -508,6 +567,10 @@ export async function POST(req: NextRequest) {
             });
             frameDetails.push({ id, title: frame.title, x: frame.x, y: frame.y, width: frame.width, height: frame.height });
             results.push({ tool: "createSWOTTemplate", id });
+
+            const stickyIds = createStickiesInFrame(frame, contentArrays[fi] ?? [], { writer, itemsPath, uid, at });
+            allStickyIds.push(...stickyIds);
+            for (const sid of stickyIds) results.push({ tool: "createStickyNote", id: sid });
           }
           // Create outer wrapper frame
           const swotMinX = Math.min(...layout.frames.map(f => f.x));
@@ -524,8 +587,10 @@ export async function POST(req: NextRequest) {
           frameIds.unshift(swotWrapperId);
           results.push({ tool: "createSWOTTemplate", id: swotWrapperId });
           toolResultContent = JSON.stringify({
-            success: true, frameIds, frames: frameDetails,
-            hint: "Frames created. Now use createStickyNote to add 2-3 relevant sticky notes INSIDE each frame. Sticky notes are 140x140. Place first note at x=frame.x+20, y=frame.y+40. Space additional notes 150px apart vertically (y+150 for each). For 2 columns, offset second column at x=frame.x+170.",
+            success: true, frameIds, stickyIds: allStickyIds, frames: frameDetails,
+            message: allStickyIds.length > 0
+              ? `SWOT template created with ${frameDetails.length} frames and ${allStickyIds.length} sticky notes, all perfectly positioned.`
+              : `SWOT template created with ${frameDetails.length} empty frames. Pass content to auto-populate with stickies.`,
           });
 
         // ── createJourneyMap ────────────────────────────────────────────────
@@ -535,8 +600,13 @@ export async function POST(req: NextRequest) {
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const layout = computeJourneyMapLayout(stages, centerX, centerY);
           const frameIds: string[] = [];
+          const allStickyIds: string[] = [];
           const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
-          for (const frame of layout.frames) {
+
+          const stageContent = input.stageContent as Array<{ stickies: string[] }> | null;
+
+          for (let fi = 0; fi < layout.frames.length; fi++) {
+            const frame = layout.frames[fi];
             const id = nanoid(); frameIds.push(id);
             writer.set(itemsPath, id, {
               type: "frame", title: frame.title, x: frame.x, y: frame.y,
@@ -544,6 +614,11 @@ export async function POST(req: NextRequest) {
             });
             frameDetails.push({ id, title: frame.title, x: frame.x, y: frame.y, width: frame.width, height: frame.height });
             results.push({ tool: "createJourneyMap", id });
+
+            const stickyTexts = stageContent?.[fi]?.stickies ?? [];
+            const stickyIds = createStickiesInFrame(frame, stickyTexts, { writer, itemsPath, uid, at, color: "yellow" });
+            allStickyIds.push(...stickyIds);
+            for (const sid of stickyIds) results.push({ tool: "createStickyNote", id: sid });
           }
           for (const conn of layout.connectors) {
             const connId = nanoid();
@@ -567,8 +642,10 @@ export async function POST(req: NextRequest) {
           frameIds.unshift(jmWrapperId);
           results.push({ tool: "createJourneyMap", id: jmWrapperId });
           toolResultContent = JSON.stringify({
-            success: true, frameIds, frames: frameDetails,
-            hint: "Frames created with connectors. Now use createStickyNote to add 1-2 relevant sticky notes INSIDE each stage frame. Sticky notes are 140x140. Place first note at x=frame.x+20, y=frame.y+40. Space additional notes 150px apart vertically.",
+            success: true, frameIds, stickyIds: allStickyIds, frames: frameDetails,
+            message: allStickyIds.length > 0
+              ? `Journey map created with ${stages.length} stages and ${allStickyIds.length} sticky notes.`
+              : `Journey map created with ${stages.length} empty stages. Pass stageContent to auto-populate.`,
           });
 
         // ── createRetroTemplate ─────────────────────────────────────────────
@@ -577,8 +654,18 @@ export async function POST(req: NextRequest) {
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const layout = computeRetroLayout(centerX, centerY);
           const frameIds: string[] = [];
+          const allStickyIds: string[] = [];
           const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
-          for (const frame of layout.frames) {
+
+          const content = input.content as {
+            wentWell: string[]; didntGoWell: string[]; actionItems: string[];
+          } | null;
+          const contentArrays = content
+            ? [content.wentWell, content.didntGoWell, content.actionItems]
+            : [[], [], []];
+
+          for (let fi = 0; fi < layout.frames.length; fi++) {
+            const frame = layout.frames[fi];
             const id = nanoid(); frameIds.push(id);
             writer.set(itemsPath, id, {
               type: "frame", title: frame.title, x: frame.x, y: frame.y,
@@ -587,6 +674,10 @@ export async function POST(req: NextRequest) {
             });
             frameDetails.push({ id, title: frame.title, x: frame.x, y: frame.y, width: frame.width, height: frame.height });
             results.push({ tool: "createRetroTemplate", id });
+
+            const stickyIds = createStickiesInFrame(frame, contentArrays[fi] ?? [], { writer, itemsPath, uid, at });
+            allStickyIds.push(...stickyIds);
+            for (const sid of stickyIds) results.push({ tool: "createStickyNote", id: sid });
           }
           // Create outer wrapper frame
           const retroMinX = Math.min(...layout.frames.map(f => f.x));
@@ -603,8 +694,10 @@ export async function POST(req: NextRequest) {
           frameIds.unshift(retroWrapperId);
           results.push({ tool: "createRetroTemplate", id: retroWrapperId });
           toolResultContent = JSON.stringify({
-            success: true, frameIds, frames: frameDetails,
-            hint: "Frames created. Now use createStickyNote to add 2-3 relevant sticky notes INSIDE each column. Sticky notes are 140x140. Place first note at x=frame.x+20, y=frame.y+40. Space additional notes 150px apart vertically.",
+            success: true, frameIds, stickyIds: allStickyIds, frames: frameDetails,
+            message: allStickyIds.length > 0
+              ? `Retrospective created with 3 columns and ${allStickyIds.length} sticky notes.`
+              : `Retrospective created with 3 empty columns. Pass content to auto-populate.`,
           });
 
         // ── All other sync tools ────────────────────────────────────────────
