@@ -181,3 +181,99 @@ export function computeRetroLayout(
     })),
   };
 }
+
+// ─── Container child layout ──────────────────────────────────────────────────
+
+export interface ContainerChildPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Compute evenly-distributed grid positions for children inside a container.
+ * Finds the column count that maximizes child size, centers the grid, and
+ * scales children down if they don't fit at their default size.
+ *
+ * Returns absolute canvas coordinates — not relative to the container.
+ */
+export function computeContainerChildLayout(options: {
+  containerX: number;
+  containerY: number;
+  containerW: number;
+  containerH: number;
+  childCount: number;
+  childW?: number;
+  childH?: number;
+  paddingX?: number;
+  paddingTop?: number;
+  paddingBottom?: number;
+}): ContainerChildPosition[] {
+  const {
+    containerX,
+    containerY,
+    containerW,
+    containerH,
+    childCount,
+    childW = 140,
+    childH = 140,
+    paddingX = 20,
+    paddingTop = 50,
+    paddingBottom = 20,
+  } = options;
+
+  if (childCount <= 0) return [];
+
+  const availW = containerW - 2 * paddingX;
+  const availH = containerH - paddingTop - paddingBottom;
+  const minGap = 10;
+
+  // Find the column count that maximises child scale while fitting.
+  let bestCols = 1;
+  let bestScale = 0;
+
+  for (let cols = 1; cols <= childCount; cols++) {
+    const rows = Math.ceil(childCount / cols);
+    const scaleX = (availW - (cols - 1) * minGap) / (cols * childW);
+    const scaleY = (availH - (rows - 1) * minGap) / (rows * childH);
+    const scale = Math.min(scaleX, scaleY, 1); // never upscale
+    if (scale > bestScale) {
+      bestScale = scale;
+      bestCols = cols;
+    }
+  }
+
+  const cols = bestCols;
+  const rows = Math.ceil(childCount / cols);
+  const finalW = Math.round(childW * bestScale);
+  const finalH = Math.round(childH * bestScale);
+
+  // Distribute remaining space as gutters; center if only one col/row.
+  const totalChildrenW = cols * finalW;
+  const totalChildrenH = rows * finalH;
+  const gutterX = cols > 1 ? Math.round((availW - totalChildrenW) / (cols - 1)) : 0;
+  const gutterY = rows > 1 ? Math.round((availH - totalChildrenH) / (rows - 1)) : 0;
+
+  const gridW = totalChildrenW + Math.max(0, cols - 1) * gutterX;
+  const gridH = totalChildrenH + Math.max(0, rows - 1) * gutterY;
+  const offsetX = Math.round((availW - gridW) / 2);
+  const offsetY = Math.round((availH - gridH) / 2);
+
+  const startX = containerX + paddingX + offsetX;
+  const startY = containerY + paddingTop + offsetY;
+
+  const positions: ContainerChildPosition[] = [];
+  for (let i = 0; i < childCount; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    positions.push({
+      x: Math.round(startX + col * (finalW + gutterX)),
+      y: Math.round(startY + row * (finalH + gutterY)),
+      width: finalW,
+      height: finalH,
+    });
+  }
+
+  return positions;
+}
