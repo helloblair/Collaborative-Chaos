@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { verifyIdToken, adminDb } from "@/lib/firebaseAdmin";
 import { AI_TOOLS, SYSTEM_PROMPT } from "@/lib/aiTools";
 import type { BoardItem } from "@/types/board";
@@ -24,7 +24,11 @@ interface ActionResult { tool: string; id?: string; [key: string]: unknown; }
 // Constants
 // ---------------------------------------------------------------------------
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let _openai: OpenAI | null = null;
+function getOpenAI() {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _openai;
+}
 
 // Firebase project ID — available without admin credentials
 const PROJECT_ID =
@@ -325,10 +329,10 @@ function executeTool(
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest) {
-  // 1. Guard: ANTHROPIC_API_KEY must be set
-  if (!process.env.ANTHROPIC_API_KEY) {
+  // 1. Guard: OPENAI_API_KEY must be set
+  if (!process.env.OPENAI_API_KEY) {
     return NextResponse.json(
-      { error: "AI agent not configured — add ANTHROPIC_API_KEY to .env.local" },
+      { error: "AI agent not configured — add OPENAI_API_KEY to .env.local" },
       { status: 503 }
     );
   }
@@ -396,7 +400,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // 5. Build the initial LLM message
+    // 5. Build the initial LLM messages
     const reservationNote =
       activeReservations.length > 0
         ? `\nActive space reservations (avoid placing objects here):\n${JSON.stringify(activeReservations)}`
@@ -410,7 +414,10 @@ export async function POST(req: NextRequest) {
       `\nCommand: ${command}`,
     ].join("\n");
 
-    const messages: Anthropic.MessageParam[] = [{ role: "user", content: userContent }];
+    const messages: OpenAI.ChatCompletionMessageParam[] = [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userContent },
+    ];
     const results: ActionResult[] = [];
 
     // All Firestore writes go through the REST batch writer (user ID token, no admin credentials needed)
@@ -418,37 +425,40 @@ export async function POST(req: NextRequest) {
 
     // 6. Agentic loop — up to 10 turns
     for (let turn = 0; turn < 10; turn++) {
-      const response = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
+      const response = await getOpenAI().chat.completions.create({
+        model: "gpt-4.1-nano-2025-04-14",
         max_tokens: 4096,
-        system: SYSTEM_PROMPT,
         messages,
         tools: AI_TOOLS,
+        parallel_tool_calls: false,
       });
 
-      messages.push({ role: "assistant", content: response.content });
-      if (response.stop_reason !== "tool_use") break;
+      const choice = response.choices[0];
+      const assistantMessage = choice.message;
 
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      // Append the assistant message to conversation history
+      messages.push(assistantMessage);
 
-      for (const block of response.content) {
-        if (block.type !== "tool_use") continue;
+      // If no tool calls, the model is done
+      if (choice.finish_reason !== "tool_calls" || !assistantMessage.tool_calls?.length) break;
 
-        const input = block.input as Record<string, unknown>;
+      for (const toolCall of assistantMessage.tool_calls) {
+        if (toolCall.type !== "function") continue;
+        const toolName = toolCall.function.name;
+        const input = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
         const at = new Date().toISOString();
 
+        let toolResultContent: string;
+
         // ── getBoardState ───────────────────────────────────────────────────
-        if (block.name === "getBoardState") {
+        if (toolName === "getBoardState") {
           await writer.flush();
           const items = await firestoreList(PROJECT_ID, token, itemsPath);
-          toolResults.push({
-            type: "tool_result", tool_use_id: block.id,
-            content: JSON.stringify(items),
-          });
+          toolResultContent = JSON.stringify(items);
           results.push({ tool: "getBoardState", count: items.length });
 
         // ── arrangeInGrid (fetches real object sizes) ───────────────────────
-        } else if (block.name === "arrangeInGrid") {
+        } else if (toolName === "arrangeInGrid") {
           await writer.flush();
           const ids = input.objectIds as string[];
           const docs = await firestoreBatchGet(PROJECT_ID, token, ids.map((id) => `${itemsPath}/${id}`));
@@ -463,13 +473,10 @@ export async function POST(req: NextRequest) {
             writer.update(itemsPath, id, { x: pos.x, y: pos.y, updatedAt: at });
           }
           results.push({ tool: "arrangeInGrid", count: ids.length });
-          toolResults.push({
-            type: "tool_result", tool_use_id: block.id,
-            content: JSON.stringify({ success: true, arranged: ids.length }),
-          });
+          toolResultContent = JSON.stringify({ success: true, arranged: ids.length });
 
         // ── createSWOTTemplate ──────────────────────────────────────────────
-        } else if (block.name === "createSWOTTemplate") {
+        } else if (toolName === "createSWOTTemplate") {
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const layout = computeSWOTLayout(centerX, centerY);
@@ -483,13 +490,10 @@ export async function POST(req: NextRequest) {
             });
             results.push({ tool: "createSWOTTemplate", id });
           }
-          toolResults.push({
-            type: "tool_result", tool_use_id: block.id,
-            content: JSON.stringify({ success: true, frameIds }),
-          });
+          toolResultContent = JSON.stringify({ success: true, frameIds });
 
         // ── createJourneyMap ────────────────────────────────────────────────
-        } else if (block.name === "createJourneyMap") {
+        } else if (toolName === "createJourneyMap") {
           const stages = (input.stages as string[]) ?? ["Stage 1", "Stage 2", "Stage 3"];
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
@@ -510,13 +514,10 @@ export async function POST(req: NextRequest) {
               style: "arrow", color: "#64748B", createdBy: uid, createdAt: at,
             });
           }
-          toolResults.push({
-            type: "tool_result", tool_use_id: block.id,
-            content: JSON.stringify({ success: true, frameIds }),
-          });
+          toolResultContent = JSON.stringify({ success: true, frameIds });
 
         // ── createRetroTemplate ─────────────────────────────────────────────
-        } else if (block.name === "createRetroTemplate") {
+        } else if (toolName === "createRetroTemplate") {
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const layout = computeRetroLayout(centerX, centerY);
@@ -530,24 +531,24 @@ export async function POST(req: NextRequest) {
             });
             results.push({ tool: "createRetroTemplate", id });
           }
-          toolResults.push({
-            type: "tool_result", tool_use_id: block.id,
-            content: JSON.stringify({ success: true, frameIds }),
-          });
+          toolResultContent = JSON.stringify({ success: true, frameIds });
 
         // ── All other sync tools ────────────────────────────────────────────
         } else {
-          const { toolResult, action } = executeTool(block.name, input, boardId, uid, writer, vb);
-          toolResults.push({
-            type: "tool_result", tool_use_id: block.id,
-            content: JSON.stringify(toolResult),
-          });
+          const { toolResult, action } = executeTool(toolName, input, boardId, uid, writer, vb);
+          toolResultContent = JSON.stringify(toolResult);
           results.push(action);
         }
+
+        // Append tool result to conversation for multi-turn
+        messages.push({
+          role: "tool",
+          tool_call_id: toolCall.id,
+          content: toolResultContent,
+        });
       }
 
       await writer.flush();
-      messages.push({ role: "user", content: toolResults });
     }
 
     const createdIds = results.filter((r) => r.id).map((r) => r.id as string);
