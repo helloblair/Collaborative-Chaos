@@ -1,310 +1,375 @@
-import type Anthropic from "@anthropic-ai/sdk";
+import type OpenAI from "openai";
 
-export const AI_TOOLS: Anthropic.Tool[] = [
+export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
   {
-    name: "createStickyNote",
-    description:
-      "Create a sticky note on the board at the specified position with the given text and color.",
-    input_schema: {
-      type: "object",
-      properties: {
-        text: {
-          type: "string",
-          description: "The text content of the sticky note.",
+    type: "function",
+    function: {
+      name: "createStickyNote",
+      description:
+        "Create a sticky note on the board at the specified position with the given text and color.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          text: {
+            type: "string",
+            description: "The text content of the sticky note.",
+          },
+          color: {
+            type: ["string", "null"],
+            enum: ["yellow", "pink", "blue", "green", "purple", "orange", null],
+            description: "Background color of the sticky note.",
+          },
+          x: {
+            type: ["number", "null"],
+            description: "X position on the board canvas.",
+          },
+          y: {
+            type: ["number", "null"],
+            description: "Y position on the board canvas.",
+          },
         },
-        color: {
-          type: "string",
-          enum: ["yellow", "pink", "blue", "green", "purple", "orange"],
-          description: "Background color of the sticky note.",
-        },
-        x: {
-          type: "number",
-          description: "X position on the board canvas.",
-        },
-        y: {
-          type: "number",
-          description: "Y position on the board canvas.",
-        },
+        required: ["text", "color", "x", "y"],
+        additionalProperties: false,
       },
-      required: ["text"],
     },
   },
 
   {
-    name: "createShape",
-    description:
-      "Create a geometric shape (rectangle, circle, line, or heart) on the board.",
-    input_schema: {
-      type: "object",
-      properties: {
-        type: {
-          type: "string",
-          enum: ["rectangle", "circle", "line", "heart"],
-          description: "The kind of shape to create.",
+    type: "function",
+    function: {
+      name: "createShape",
+      description:
+        "Create a geometric shape (rectangle, circle, line, or heart) on the board.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["rectangle", "circle", "line", "heart"],
+            description: "The kind of shape to create.",
+          },
+          color: {
+            type: ["string", "null"],
+            description: "Fill color of the shape (CSS color string or hex).",
+          },
+          x: {
+            type: ["number", "null"],
+            description: "X position on the board canvas.",
+          },
+          y: {
+            type: ["number", "null"],
+            description: "Y position on the board canvas.",
+          },
+          width: {
+            type: ["number", "null"],
+            description: "Width of the shape in pixels.",
+          },
+          height: {
+            type: ["number", "null"],
+            description: "Height of the shape in pixels.",
+          },
         },
-        color: {
-          type: "string",
-          description: "Fill color of the shape (CSS color string or hex).",
-        },
-        x: {
-          type: "number",
-          description: "X position on the board canvas.",
-        },
-        y: {
-          type: "number",
-          description: "Y position on the board canvas.",
-        },
-        width: {
-          type: "number",
-          description: "Width of the shape in pixels.",
-        },
-        height: {
-          type: "number",
-          description: "Height of the shape in pixels.",
-        },
+        required: ["type", "color", "x", "y", "width", "height"],
+        additionalProperties: false,
       },
-      required: ["type"],
     },
   },
 
   {
-    name: "createFrame",
-    description:
-      "Create a labeled frame (container/section) on the board. Useful for grouping related content or defining sections like 'Strengths', 'Action Items', etc.",
-    input_schema: {
-      type: "object",
-      properties: {
-        title: {
-          type: "string",
-          description: "The label displayed on the frame.",
+    type: "function",
+    function: {
+      name: "createFrame",
+      description:
+        "Create a labeled frame (container/section) on the board. Useful for grouping related content or defining sections like 'Strengths', 'Action Items', etc.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: "The label displayed on the frame.",
+          },
+          x: {
+            type: ["number", "null"],
+            description: "X position on the board canvas.",
+          },
+          y: {
+            type: ["number", "null"],
+            description: "Y position on the board canvas.",
+          },
+          width: {
+            type: ["number", "null"],
+            description: "Width of the frame in pixels.",
+          },
+          height: {
+            type: ["number", "null"],
+            description: "Height of the frame in pixels.",
+          },
         },
-        x: {
-          type: "number",
-          description: "X position on the board canvas.",
-        },
-        y: {
-          type: "number",
-          description: "Y position on the board canvas.",
-        },
-        width: {
-          type: "number",
-          description: "Width of the frame in pixels.",
-        },
-        height: {
-          type: "number",
-          description: "Height of the frame in pixels.",
-        },
+        required: ["title", "x", "y", "width", "height"],
+        additionalProperties: false,
       },
-      required: ["title"],
     },
   },
 
   {
-    name: "createConnector",
-    description:
-      "Draw a connector (line or arrow) between two existing objects on the board.",
-    input_schema: {
-      type: "object",
-      properties: {
-        fromId: {
-          type: "string",
-          description: "ID of the source board object.",
+    type: "function",
+    function: {
+      name: "createConnector",
+      description:
+        "Draw a connector (line or arrow) between two existing objects on the board.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          fromId: {
+            type: "string",
+            description: "ID of the source board object.",
+          },
+          toId: {
+            type: "string",
+            description: "ID of the destination board object.",
+          },
+          style: {
+            type: ["string", "null"],
+            enum: ["line", "arrow", null],
+            description:
+              "Visual style of the connector. Defaults to 'arrow'.",
+          },
         },
-        toId: {
-          type: "string",
-          description: "ID of the destination board object.",
-        },
-        style: {
-          type: "string",
-          enum: ["line", "arrow"],
-          description:
-            "Visual style of the connector. Defaults to 'arrow'.",
-        },
+        required: ["fromId", "toId", "style"],
+        additionalProperties: false,
       },
-      required: ["fromId", "toId"],
     },
   },
 
   {
-    name: "moveObject",
-    description: "Move an existing board object to a new position.",
-    input_schema: {
-      type: "object",
-      properties: {
-        objectId: {
-          type: "string",
-          description: "ID of the object to move.",
+    type: "function",
+    function: {
+      name: "moveObject",
+      description: "Move an existing board object to a new position.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          objectId: {
+            type: "string",
+            description: "ID of the object to move.",
+          },
+          x: {
+            type: "number",
+            description: "New X position on the board canvas.",
+          },
+          y: {
+            type: "number",
+            description: "New Y position on the board canvas.",
+          },
         },
-        x: {
-          type: "number",
-          description: "New X position on the board canvas.",
-        },
-        y: {
-          type: "number",
-          description: "New Y position on the board canvas.",
-        },
+        required: ["objectId", "x", "y"],
+        additionalProperties: false,
       },
-      required: ["objectId", "x", "y"],
     },
   },
 
   {
-    name: "changeColor",
-    description: "Change the fill color of an existing board object.",
-    input_schema: {
-      type: "object",
-      properties: {
-        objectId: {
-          type: "string",
-          description: "ID of the object whose color should change.",
+    type: "function",
+    function: {
+      name: "changeColor",
+      description: "Change the fill color of an existing board object.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          objectId: {
+            type: "string",
+            description: "ID of the object whose color should change.",
+          },
+          color: {
+            type: "string",
+            description: "New color (CSS color string or hex value).",
+          },
         },
-        color: {
-          type: "string",
-          description: "New color (CSS color string or hex value).",
-        },
+        required: ["objectId", "color"],
+        additionalProperties: false,
       },
-      required: ["objectId", "color"],
     },
   },
 
   {
-    name: "arrangeInGrid",
-    description:
-      "Arrange a set of existing objects into a uniform grid layout. Distributes them evenly in the specified number of columns, starting from the top-left of the current viewport.",
-    input_schema: {
-      type: "object",
-      properties: {
-        objectIds: {
-          type: "array",
-          items: { type: "string" },
-          description: "IDs of the objects to arrange.",
+    type: "function",
+    function: {
+      name: "arrangeInGrid",
+      description:
+        "Arrange a set of existing objects into a uniform grid layout. Distributes them evenly in the specified number of columns, starting from the top-left of the current viewport.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          objectIds: {
+            type: "array",
+            items: { type: "string" },
+            description: "IDs of the objects to arrange.",
+          },
+          columns: {
+            type: ["number", "null"],
+            description:
+              "Number of columns in the grid. Defaults to 3 if omitted.",
+          },
         },
-        columns: {
-          type: "number",
-          description:
-            "Number of columns in the grid. Defaults to 3 if omitted.",
-        },
+        required: ["objectIds", "columns"],
+        additionalProperties: false,
       },
-      required: ["objectIds"],
     },
   },
 
   {
-    name: "resizeObject",
-    description: "Resize an existing board object to new dimensions.",
-    input_schema: {
-      type: "object",
-      properties: {
-        objectId: {
-          type: "string",
-          description: "ID of the object to resize.",
+    type: "function",
+    function: {
+      name: "resizeObject",
+      description: "Resize an existing board object to new dimensions.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          objectId: {
+            type: "string",
+            description: "ID of the object to resize.",
+          },
+          width: {
+            type: "number",
+            description: "New width in pixels.",
+          },
+          height: {
+            type: "number",
+            description: "New height in pixels.",
+          },
         },
-        width: {
-          type: "number",
-          description: "New width in pixels.",
-        },
-        height: {
-          type: "number",
-          description: "New height in pixels.",
-        },
+        required: ["objectId", "width", "height"],
+        additionalProperties: false,
       },
-      required: ["objectId", "width", "height"],
     },
   },
 
   {
-    name: "updateText",
-    description:
-      "Update the text content of an existing sticky note or text element.",
-    input_schema: {
-      type: "object",
-      properties: {
-        objectId: {
-          type: "string",
-          description: "ID of the sticky note or text element to update.",
+    type: "function",
+    function: {
+      name: "updateText",
+      description:
+        "Update the text content of an existing sticky note or text element.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          objectId: {
+            type: "string",
+            description: "ID of the sticky note or text element to update.",
+          },
+          newText: {
+            type: "string",
+            description: "Replacement text content.",
+          },
         },
-        newText: {
-          type: "string",
-          description: "Replacement text content.",
-        },
+        required: ["objectId", "newText"],
+        additionalProperties: false,
       },
-      required: ["objectId", "newText"],
     },
   },
 
   {
-    name: "getBoardState",
-    description:
-      "Retrieve the full list of objects currently on the board. Call this when you need IDs or details about objects not visible in the initial viewport context, or when you need to verify what already exists before making changes.",
-    input_schema: {
-      type: "object",
-      properties: {},
-      required: [],
+    type: "function",
+    function: {
+      name: "getBoardState",
+      description:
+        "Retrieve the full list of objects currently on the board. Call this when you need IDs or details about objects not visible in the initial viewport context, or when you need to verify what already exists before making changes.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
     },
   },
 
   {
-    name: "createSWOTTemplate",
-    description:
-      "Create a complete SWOT analysis template: 4 frames arranged in a 2×2 grid (Strengths, Weaknesses, Opportunities, Threats). The server computes exact positions using the layout engine. Use this instead of calling createFrame 4 times.",
-    input_schema: {
-      type: "object",
-      properties: {
-        centerX: {
-          type: "number",
-          description: "X coordinate of the center of the 2×2 grid. Defaults to viewport center.",
+    type: "function",
+    function: {
+      name: "createSWOTTemplate",
+      description:
+        "Create a complete SWOT analysis template: 4 frames arranged in a 2x2 grid (Strengths, Weaknesses, Opportunities, Threats). The server computes exact positions using the layout engine. Use this instead of calling createFrame 4 times.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          centerX: {
+            type: ["number", "null"],
+            description: "X coordinate of the center of the 2x2 grid. Defaults to viewport center.",
+          },
+          centerY: {
+            type: ["number", "null"],
+            description: "Y coordinate of the center of the 2x2 grid. Defaults to viewport center.",
+          },
         },
-        centerY: {
-          type: "number",
-          description: "Y coordinate of the center of the 2×2 grid. Defaults to viewport center.",
-        },
+        required: ["centerX", "centerY"],
+        additionalProperties: false,
       },
-      required: [],
     },
   },
 
   {
-    name: "createJourneyMap",
-    description:
-      "Create a user journey map template: a horizontal row of labeled frames, one per stage, with arrows connecting them. The server computes exact positions using the layout engine.",
-    input_schema: {
-      type: "object",
-      properties: {
-        stages: {
-          type: "array",
-          items: { type: "string" },
-          description: "Ordered list of stage names (e.g. ['Awareness', 'Consideration', 'Purchase', 'Loyalty']).",
+    type: "function",
+    function: {
+      name: "createJourneyMap",
+      description:
+        "Create a user journey map template: a horizontal row of labeled frames, one per stage, with arrows connecting them. The server computes exact positions using the layout engine.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          stages: {
+            type: "array",
+            items: { type: "string" },
+            description: "Ordered list of stage names (e.g. ['Awareness', 'Consideration', 'Purchase', 'Loyalty']).",
+          },
+          centerX: {
+            type: ["number", "null"],
+            description: "X coordinate of the center of the row. Defaults to viewport center.",
+          },
+          centerY: {
+            type: ["number", "null"],
+            description: "Y coordinate of the center of the row. Defaults to viewport center.",
+          },
         },
-        centerX: {
-          type: "number",
-          description: "X coordinate of the center of the row. Defaults to viewport center.",
-        },
-        centerY: {
-          type: "number",
-          description: "Y coordinate of the center of the row. Defaults to viewport center.",
-        },
+        required: ["stages", "centerX", "centerY"],
+        additionalProperties: false,
       },
-      required: ["stages"],
     },
   },
 
   {
-    name: "createRetroTemplate",
-    description:
-      "Create a retrospective template: 3 frames in a horizontal layout (What Went Well, What Didn't, Action Items). The server computes exact positions using the layout engine.",
-    input_schema: {
-      type: "object",
-      properties: {
-        centerX: {
-          type: "number",
-          description: "X coordinate of the center of the 3-column layout. Defaults to viewport center.",
+    type: "function",
+    function: {
+      name: "createRetroTemplate",
+      description:
+        "Create a retrospective template: 3 frames in a horizontal layout (What Went Well, What Didn't, Action Items). The server computes exact positions using the layout engine.",
+      strict: true,
+      parameters: {
+        type: "object",
+        properties: {
+          centerX: {
+            type: ["number", "null"],
+            description: "X coordinate of the center of the 3-column layout. Defaults to viewport center.",
+          },
+          centerY: {
+            type: ["number", "null"],
+            description: "Y coordinate of the center of the layout. Defaults to viewport center.",
+          },
         },
-        centerY: {
-          type: "number",
-          description: "Y coordinate of the center of the layout. Defaults to viewport center.",
-        },
+        required: ["centerX", "centerY"],
+        additionalProperties: false,
       },
-      required: [],
     },
   },
 ];
