@@ -1102,6 +1102,8 @@ export type BoardCanvasProps = {
   centerOnIds?: string[];
   /** Called after the centering animation completes so the parent can clear the IDs. */
   onCenterComplete?: () => void;
+  /** Stroke color for presence cursor dots — comes from theme. */
+  cursorStrokeColor?: string;
 };
 
 export function BoardCanvas({
@@ -1134,6 +1136,7 @@ export function BoardCanvas({
   aiCreatedIds = [],
   centerOnIds = [],
   onCenterComplete,
+  cursorStrokeColor = "#0f0a1a",
 }: BoardCanvasProps) {
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
@@ -2104,7 +2107,7 @@ export function BoardCanvas({
           {/* Other users' cursors (world space) */}
           {otherPresences.map(([key, p]) => (
             <Group key={key} x={p.cursorX} y={p.cursorY} listening={false}>
-              <Circle radius={5} fill={p.color} stroke="#fff" strokeWidth={1} />
+              <Circle radius={5} fill={p.color} stroke={cursorStrokeColor} strokeWidth={1} />
               <Text
                 x={10}
                 y={-6}

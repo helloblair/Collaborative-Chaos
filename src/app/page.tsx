@@ -15,6 +15,8 @@ import { collection, onSnapshot } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "@/components/ThemeProvider";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const AVATAR_COLORS = ["#e11d48", "#2563eb", "#16a34a", "#f59e0b", "#9333ea"];
 
@@ -94,8 +96,8 @@ function BoardThumbnail({ boardId }: { boardId: string }) {
 
   if (items.length === 0) {
     return (
-      <div className="w-full h-full bg-gray-100 flex items-center justify-center rounded-sm">
-        <span className="text-xs text-gray-400 select-none">Empty board</span>
+      <div className="w-full h-full flex items-center justify-center rounded-sm" style={{ background: "var(--accent-secondary-bg)" }}>
+        <span className="text-xs select-none" style={{ color: "var(--text-muted)" }}>Empty board</span>
       </div>
     );
   }
@@ -119,7 +121,7 @@ function BoardThumbnail({ boardId }: { boardId: string }) {
   const viewBox = `${minX - pad} ${minY - pad} ${bboxW + pad * 2} ${bboxH + pad * 2}`;
 
   return (
-    <svg viewBox={viewBox} className="w-full h-full rounded-sm bg-gray-50" preserveAspectRatio="xMidYMid meet">
+    <svg viewBox={viewBox} className="w-full h-full rounded-sm" style={{ background: "var(--surface-panel)" }} preserveAspectRatio="xMidYMid meet">
       {rects.map((r, i) => {
         const fill = r.fill ?? DEFAULT_FILLS[r.type] ?? "#C9E4DE";
         if (r.type === "circle") {
@@ -211,6 +213,7 @@ function BoardThumbnail({ boardId }: { boardId: string }) {
 }
 
 export default function Home() {
+  const { t } = useTheme();
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [boards, setBoards] = useState<Board[]>([]);
   const [showNewBoard, setShowNewBoard] = useState(false);
@@ -277,28 +280,29 @@ export default function Home() {
 
   if (user === undefined) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-sm text-gray-400">Loading...</div>
+      <main className="min-h-screen flex items-center justify-center">
+        <div className="text-sm" style={{ color: "var(--text-secondary)" }}>{t("Loading...")}</div>
       </main>
     );
   }
 
   if (user === null) {
     return (
-      <main className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-        <div className="w-full max-w-md rounded-xl border border-gray-200 bg-white shadow-sm p-8">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-1">
-            Collaborative Chaos
+      <main className="min-h-screen flex items-center justify-center p-6">
+        <ThemeToggle />
+        <div className="glass-panel w-full max-w-md rounded-xl shadow-2xl p-8">
+          <h1 className="text-2xl font-semibold mb-1" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>
+            {t("Collaborative Chaos")}
           </h1>
-          <p className="text-gray-500 text-sm mb-6">
-            A shared canvas for sticky notes and shapes.
+          <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>
+            {t("A shared canvas for sticky notes and shapes.")}
           </p>
           <button
             type="button"
             onClick={login}
-            className="w-full rounded-lg px-4 py-3 bg-gray-900 text-white font-medium text-sm hover:bg-gray-800 transition-colors"
+            className="btn-primary w-full rounded-lg px-4 py-3 font-medium text-sm active:scale-95 transition-colors"
           >
-            Sign in with Google
+            {t("Sign in with Google")}
           </button>
         </div>
       </main>
@@ -306,21 +310,23 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50 p-6">
+    <main className="min-h-screen p-6">
+      <ThemeToggle />
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold text-gray-900">My Boards</h1>
+          <h1 className="text-2xl font-semibold" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>{t("My Boards")}</h1>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500 truncate max-w-[180px]">
+            <span className="text-sm truncate max-w-[180px]" style={{ color: "var(--text-secondary)" }}>
               {user.displayName ?? user.email}
             </span>
             <button
               type="button"
               onClick={() => signOut(auth)}
-              className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              className="text-sm transition-colors"
+              style={{ color: "var(--text-muted)" }}
             >
-              Sign out
+              {t("Sign out")}
             </button>
           </div>
         </div>
@@ -329,47 +335,48 @@ export default function Home() {
         {showNewBoard ? (
           <form
             onSubmit={handleCreateBoard}
-            className="mb-6 flex gap-2 items-center bg-white border border-gray-200 rounded-xl p-3"
+            className="glass-panel mb-6 flex gap-2 items-center rounded-xl p-3"
           >
             <input
               ref={nameInputRef}
               type="text"
               value={newBoardName}
               onChange={(e) => setNewBoardName(e.target.value)}
-              placeholder="Board name"
-              className="flex-1 text-sm text-gray-900 placeholder-gray-400 focus:outline-none bg-transparent"
+              placeholder={t("Board name")}
+              className="flex-1 text-sm focus:outline-none bg-transparent"
+              style={{ color: "var(--text-primary)", placeholder: "var(--text-muted)" } as React.CSSProperties}
               disabled={creating}
             />
             <button
               type="submit"
               disabled={creating || !newBoardName.trim()}
-              className="rounded-lg px-3 py-1.5 bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="btn-primary rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {creating ? "Creating…" : "Create"}
+              {creating ? t("Creating…") : t("Create")}
             </button>
             <button
               type="button"
               onClick={cancelNewBoard}
               disabled={creating}
-              className="rounded-lg px-3 py-1.5 border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition-colors"
+              className="btn-secondary rounded-lg px-3 py-1.5 text-sm font-medium transition-colors"
             >
-              Cancel
+              {t("Cancel")}
             </button>
           </form>
         ) : (
           <button
             type="button"
             onClick={() => setShowNewBoard(true)}
-            className="mb-6 rounded-lg px-4 py-2 bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-colors"
+            className="btn-primary mb-6 rounded-lg px-4 py-2 text-sm font-medium active:scale-95 transition-colors"
           >
-            + New Board
+            {t("+ New Board")}
           </button>
         )}
 
         {/* Board grid — polaroid cards */}
         {boards.length === 0 ? (
-          <div className="text-center py-16 text-gray-400 text-sm">
-            No boards yet. Create one to get started.
+          <div className="text-center py-16 text-sm" style={{ color: "var(--text-muted)" }}>
+            {t("No boards yet. Create one to get started.")}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
@@ -379,9 +386,12 @@ export default function Home() {
                 <div key={board.id} className="group relative">
                   <Link
                     href={`/board/${board.id}`}
-                    className="block bg-white rounded-md p-2.5 pb-5 shadow-md hover:shadow-xl transition-all duration-200 ease-out"
+                    className="block rounded-md p-2.5 pb-5 transition-all duration-200 ease-out"
                     style={{
                       transform: `rotate(${rotation}deg)`,
+                      background: "var(--surface-panel)",
+                      border: "1px solid var(--border-subtle)",
+                      boxShadow: "var(--shadow-card)",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.transform = "rotate(0deg) translateY(-4px)";
@@ -392,15 +402,15 @@ export default function Home() {
                   >
                     {/* Board name — top label */}
                     <p
-                      className="text-sm font-semibold text-gray-800 truncate mb-2 px-0.5"
-                      style={{ fontStyle: "italic" }}
+                      className="text-sm font-semibold truncate mb-2 px-0.5"
+                      style={{ fontStyle: "italic", color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}
                       title={board.name}
                     >
                       {board.name}
                     </p>
 
                     {/* Thumbnail preview area */}
-                    <div className="aspect-[4/3] w-full overflow-hidden rounded-sm bg-gray-100">
+                    <div className="aspect-[4/3] w-full overflow-hidden rounded-sm" style={{ background: "var(--accent-secondary-bg)" }}>
                       <BoardThumbnail boardId={board.id} />
                     </div>
 
@@ -412,20 +422,23 @@ export default function Home() {
                           <span
                             key={email}
                             title={email}
-                            className="w-5 h-5 rounded-full border-2 border-white flex items-center justify-center text-white text-[9px] font-semibold uppercase"
-                            style={{ background: avatarColor(email), zIndex: 3 - i }}
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-semibold uppercase"
+                            style={{ background: avatarColor(email), zIndex: 3 - i, borderWidth: 2, borderStyle: "solid", borderColor: "var(--surface-bg)" }}
                           >
                             {email[0]}
                           </span>
                         ))}
                         {board.memberEmails.length > 3 && (
-                          <span className="w-5 h-5 rounded-full border-2 border-white bg-gray-200 flex items-center justify-center text-gray-600 text-[9px] font-medium">
+                          <span
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-medium"
+                            style={{ borderWidth: 2, borderStyle: "solid", borderColor: "var(--surface-bg)", background: "var(--accent-secondary-bg)", color: "var(--text-secondary)" }}
+                          >
                             +{board.memberEmails.length - 3}
                           </span>
                         )}
                       </div>
 
-                      <span className="text-[10px] text-gray-400 truncate">
+                      <span className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>
                         {board.members.length} member{board.members.length !== 1 ? "s" : ""}
                         {relativeTime(board.updatedAt) ? ` · ${relativeTime(board.updatedAt)}` : ""}
                       </span>
@@ -443,7 +456,12 @@ export default function Home() {
                       }}
                       disabled={deletingId === board.id}
                       title="Delete board"
-                      className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-full w-6 h-6 flex items-center justify-center bg-white border border-gray-200 shadow-sm text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 disabled:cursor-not-allowed text-xs z-10"
+                      className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-full w-6 h-6 flex items-center justify-center shadow-sm disabled:cursor-not-allowed text-xs z-10"
+                      style={{
+                        background: "var(--surface-elevated)",
+                        border: "1px solid var(--border-default)",
+                        color: "var(--text-muted)",
+                      }}
                     >
                       {deletingId === board.id ? "…" : "✕"}
                     </button>

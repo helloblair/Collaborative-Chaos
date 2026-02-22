@@ -12,6 +12,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { BoardCanvas } from "./BoardCanvas";
 import SortingHatPanel from "@/components/SortingHatPanel";
+import { useTheme } from "@/components/ThemeProvider";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   MousePointer2,
   Hand,
@@ -90,6 +92,8 @@ function pickColor(seed: string) {
 }
 
 export default function BoardClient({ boardId }: { boardId: string }) {
+  const { mode, t } = useTheme();
+  const cursorStrokeColor = mode === "aurora" ? "#0f0a1a" : "#2c1810";
   const router = useRouter();
   const searchParams = useSearchParams();
   const showDebug = searchParams.get("debug") === "1";
@@ -1278,19 +1282,21 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     <main
       ref={boardRef}
       data-board-background
-      className="h-screen w-screen relative overflow-hidden bg-gray-50 text-gray-900"
+      className="h-screen w-screen relative overflow-hidden"
+      style={{ background: "var(--surface-bg)", color: "var(--text-primary)" }}
       onClick={handleBoardClick}
     >
+      <ThemeToggle />
       {/* Left sidebar */}
-      <aside className="fixed left-0 top-0 h-screen w-48 bg-white border-r border-gray-200 z-40 flex flex-col p-3 gap-1.5">
+      <aside className="fixed left-0 top-0 h-screen w-48 z-40 flex flex-col p-3 gap-1.5" style={{ background: "var(--surface-panel)", borderRight: "1px solid var(--surface-panel-border)" }}>
         <Link
           href="/"
-          className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 font-medium text-sm transition-colors text-left"
+          className="btn-secondary w-full rounded-lg px-3 py-2 font-medium text-sm text-left"
         >
-          ← My Boards
+          {t("← My Boards")}
         </Link>
         {boardMeta && (
-          <p className="px-1 text-xs font-semibold text-gray-700 truncate" title={boardMeta.name}>
+          <p className="px-1 text-xs font-semibold truncate" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }} title={boardMeta.name}>
             {boardMeta.name}
           </p>
         )}
@@ -1304,15 +1310,15 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                   setActiveTool("select");
                   setConnectSourceId(null);
                 }}
-                className={`toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors ${
-                  activeTool === "select"
-                    ? "bg-gray-900 border-gray-900 text-white"
-                    : "bg-white border-gray-200 hover:bg-gray-100 text-gray-600"
-                }`}
+                className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors"
+                style={activeTool === "select"
+                  ? { background: "var(--accent-active-bg)", borderColor: "var(--accent-active-border)", color: "var(--text-on-accent)" }
+                  : { background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }
+                }
                 aria-label="Select mode"
               >
                 <MousePointer2 size={18} />
-                <span className="toolbar-tooltip">Select (V)</span>
+                <span className="toolbar-tooltip">{t("Select (V)")}</span>
               </button>
               <button
                 type="button"
@@ -1322,19 +1328,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                   setSelectedIds([]);
                   setSelectedConnectorId(null);
                 }}
-                className={`toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors ${
-                  activeTool === "pan"
-                    ? "bg-gray-900 border-gray-900 text-white"
-                    : "bg-white border-gray-200 hover:bg-gray-100 text-gray-600"
-                }`}
+                className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors"
+                style={activeTool === "pan"
+                  ? { background: "var(--accent-active-bg)", borderColor: "var(--accent-active-border)", color: "var(--text-on-accent)" }
+                  : { background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }
+                }
                 aria-label="Pan mode"
               >
                 <Hand size={18} />
-                <span className="toolbar-tooltip">Pan (Space+Drag)</span>
+                <span className="toolbar-tooltip">{t("Pan (Space+Drag)")}</span>
               </button>
             </div>
 
-            <hr className="border-gray-200" />
+            <hr style={{ borderColor: "var(--border-subtle)" }} />
 
             {/* ── Creation tools grid ── */}
             <div className="grid grid-cols-3 gap-1">
@@ -1342,61 +1348,67 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                 type="button"
                 onClick={handleAddSticky}
                 disabled={isCreating || activeTool !== "select"}
-                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
                 aria-label="Add sticky note"
               >
                 <StickyNote size={18} />
-                <span className="toolbar-tooltip">Sticky Note</span>
+                <span className="toolbar-tooltip">{t("Sticky Note")}</span>
               </button>
               <button
                 type="button"
                 onClick={handleAddRect}
                 disabled={isCreating || activeTool !== "select"}
-                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
                 aria-label="Add rectangle"
               >
                 <Square size={18} />
-                <span className="toolbar-tooltip">Rectangle</span>
+                <span className="toolbar-tooltip">{t("Rectangle")}</span>
               </button>
               <button
                 type="button"
                 onClick={handleAddCircle}
                 disabled={isCreating || activeTool !== "select"}
-                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
                 aria-label="Add circle"
               >
                 <CircleIcon size={18} />
-                <span className="toolbar-tooltip">Circle</span>
+                <span className="toolbar-tooltip">{t("Circle")}</span>
               </button>
               <button
                 type="button"
                 onClick={handleAddLine}
                 disabled={isCreating || activeTool !== "select"}
-                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
                 aria-label="Add line"
               >
                 <Minus size={18} />
-                <span className="toolbar-tooltip">Line</span>
+                <span className="toolbar-tooltip">{t("Line")}</span>
               </button>
               <button
                 type="button"
                 onClick={handleAddHeart}
                 disabled={isCreating || activeTool !== "select"}
-                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
                 aria-label="Add heart"
               >
                 <Heart size={18} />
-                <span className="toolbar-tooltip">Heart</span>
+                <span className="toolbar-tooltip">{t("Heart")}</span>
               </button>
               <button
                 type="button"
                 onClick={handleAddText}
                 disabled={isCreating || activeTool !== "select"}
-                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
                 aria-label="Add text"
               >
                 <Type size={18} />
-                <span className="toolbar-tooltip">Text</span>
+                <span className="toolbar-tooltip">{t("Text")}</span>
               </button>
             </div>
 
@@ -1410,15 +1422,15 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                   setSelectedIds([]);
                   setSelectedConnectorId(null);
                 }}
-                className={`toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors ${
-                  activeTool === "frame"
-                    ? "bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700"
-                    : "bg-white border-gray-200 hover:bg-gray-100 text-gray-600"
-                }`}
+                className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors"
+                style={activeTool === "frame"
+                  ? { background: "#6366f1", borderColor: "#6366f1", color: "#fff" }
+                  : { background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }
+                }
                 aria-label="Add frame"
               >
                 <Frame size={18} />
-                <span className="toolbar-tooltip">Frame</span>
+                <span className="toolbar-tooltip">{t("Frame")}</span>
               </button>
               <button
                 type="button"
@@ -1429,31 +1441,31 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                   setSelectedIds([]);
                   setSelectedConnectorId(null);
                 }}
-                className={`toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors ${
-                  activeTool === "connect"
-                    ? "bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
-                    : "bg-white border-gray-200 hover:bg-gray-100 text-gray-600"
-                }`}
+                className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors"
+                style={activeTool === "connect"
+                  ? { background: "#2563eb", borderColor: "#2563eb", color: "#fff" }
+                  : { background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }
+                }
                 aria-label="Connect objects"
               >
                 <ArrowUpRight size={18} />
-                <span className="toolbar-tooltip">Connect</span>
+                <span className="toolbar-tooltip">{t("Connect")}</span>
               </button>
             </div>
 
             {/* ── Selection controls ── */}
             {hasSelection && activeTool === "select" && (
               <>
-                <hr className="border-gray-200" />
+                <hr style={{ borderColor: "var(--border-subtle)" }} />
                 {isMultiSelect ? (
-                  <p className="text-xs text-gray-500 font-medium px-1">
-                    {selectedIds.length} items selected
+                  <p className="text-xs font-medium px-1" style={{ color: "var(--text-secondary)" }}>
+                    {selectedIds.length} {t("items selected")}
                   </p>
                 ) : (
                   <>
                     {selectedItem?.type === "text" ? (
                       <>
-                        <label className="text-xs text-gray-500 font-medium px-1">Text Color</label>
+                        <label className="text-xs font-medium px-1" style={{ color: "var(--text-secondary)" }}>{t("Text Color")}</label>
                         <div className="flex flex-wrap gap-1.5 px-1">
                           {TEXT_COLORS.map((color) => (
                             <button
@@ -1463,25 +1475,25 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                               className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
                               style={{
                                 background: color,
-                                borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
-                                boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
+                                borderColor: selectedItemFill === color ? "var(--border-focus)" : "var(--border-default)",
+                                boxShadow: selectedItemFill === color ? "0 0 0 2px var(--border-focus)" : undefined,
                               }}
                               aria-label={`Set text color ${color}`}
                             />
                           ))}
                         </div>
-                        <label className="text-xs text-gray-500 font-medium px-1">Size</label>
+                        <label className="text-xs font-medium px-1" style={{ color: "var(--text-secondary)" }}>{t("Size")}</label>
                         <div className="flex flex-wrap gap-1 px-1">
                           {FONT_SIZES.map((size) => (
                             <button
                               key={size}
                               type="button"
                               onClick={() => handleFontSizeChange(size)}
-                              className={`rounded px-2 py-0.5 text-xs font-medium border transition-colors ${
-                                selectedItemFontSize === size
-                                  ? "bg-gray-800 text-white border-gray-800"
-                                  : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
-                              }`}
+                              className="rounded px-2 py-0.5 text-xs font-medium border transition-colors"
+                              style={selectedItemFontSize === size
+                                ? { background: "var(--accent-primary)", color: "var(--text-on-accent)", borderColor: "var(--accent-primary)" }
+                                : { background: "var(--accent-secondary-bg)", color: "var(--text-secondary)", borderColor: "var(--border-default)" }
+                              }
                               aria-label={`Font size ${size}`}
                             >
                               {size}
@@ -1491,7 +1503,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                       </>
                     ) : (
                       <>
-                        <label className="text-xs text-gray-500 font-medium px-1">Color</label>
+                        <label className="text-xs font-medium px-1" style={{ color: "var(--text-secondary)" }}>{t("Color")}</label>
                         <div className="flex flex-wrap gap-1.5 px-1">
                           {FILL_COLORS.map((color) => (
                             <button
@@ -1501,8 +1513,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                               className="w-6 h-6 rounded-full border-2 transition-transform hover:scale-110"
                               style={{
                                 background: color,
-                                borderColor: selectedItemFill === color ? "#374151" : "#e5e7eb",
-                                boxShadow: selectedItemFill === color ? "0 0 0 2px #374151" : undefined,
+                                borderColor: selectedItemFill === color ? "var(--border-focus)" : "var(--border-default)",
+                                boxShadow: selectedItemFill === color ? "0 0 0 2px var(--border-focus)" : undefined,
                               }}
                               aria-label={`Set color ${color}`}
                             />
@@ -1516,20 +1528,21 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                   <button
                     type="button"
                     onClick={handleDuplicate}
-                    className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 text-gray-600 transition-colors"
+                    className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors"
+                    style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
                     aria-label="Duplicate selected items"
                   >
                     <Copy size={16} />
-                    <span className="toolbar-tooltip">{`Duplicate (${navigator.platform?.includes("Mac") ? "⌘" : "Ctrl+"}D)`}</span>
+                    <span className="toolbar-tooltip">{`${t("Duplicate")} (${navigator.platform?.includes("Mac") ? "⌘" : "Ctrl+"}D)`}</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleDeleteItems}
-                    className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border border-red-200 bg-white hover:bg-red-50 text-red-500 transition-colors"
+                    className="btn-danger toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors"
                     aria-label="Delete selected items"
                   >
                     <Trash2 size={16} />
-                    <span className="toolbar-tooltip">Delete (Del)</span>
+                    <span className="toolbar-tooltip">{t("Delete (Del)")}</span>
                   </button>
                 </div>
               </>
@@ -1537,32 +1550,32 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
             {selectedConnectorId && (
               <>
-                <hr className="border-gray-200" />
-                <p className="text-xs text-gray-500 font-medium px-1">Connector selected</p>
+                <hr style={{ borderColor: "var(--border-subtle)" }} />
+                <p className="text-xs font-medium px-1" style={{ color: "var(--text-secondary)" }}>{t("Connector selected")}</p>
                 <button
                   type="button"
                   onClick={handleDeleteConnector}
-                  className="toolbar-btn w-full flex items-center justify-center rounded-lg p-2 border border-red-200 bg-white hover:bg-red-50 text-red-500 transition-colors"
+                  className="btn-danger toolbar-btn w-full flex items-center justify-center rounded-lg p-2 border transition-colors"
                   aria-label="Delete selected connector"
                 >
                   <Trash2 size={16} />
-                  <span className="toolbar-tooltip">Delete Connector</span>
+                  <span className="toolbar-tooltip">{t("Delete Connector")}</span>
                 </button>
               </>
             )}
 
             <div className="px-1">
-              <p className="text-xs font-medium text-gray-500 mb-1">
-                Online ({uniqueOnlineUsers.length})
+              <p className="text-xs font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+                {t("Online")} ({uniqueOnlineUsers.length})
               </p>
-              <ul className="text-xs text-gray-600 space-y-0.5">
+              <ul className="text-xs space-y-0.5" style={{ color: "var(--text-secondary)" }}>
                 {uniqueOnlineUsers.map((u) => (
                   <li key={u.uid} className="truncate" title={u.name}>
                     {u.name}
                   </li>
                 ))}
                 {uniqueOnlineUsers.length === 0 && (
-                  <li className="text-gray-400">No one else online</li>
+                  <li style={{ color: "var(--text-muted)" }}>{t("No one else online")}</li>
                 )}
               </ul>
             </div>
@@ -1576,20 +1589,22 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                 <button
                   type="button"
                   onClick={handleShareLink}
-                  className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
+                  className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors"
+                  style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
                   aria-label="Share board"
                 >
                   <Share2 size={16} />
-                  <span className="toolbar-tooltip">{copyFeedback ? "Link copied!" : "Share"}</span>
+                  <span className="toolbar-tooltip">{copyFeedback ? t("Link copied!") : t("Share")}</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleSignOut}
-                  className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 text-gray-500 transition-colors"
+                  className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors"
+                  style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-muted)" }}
                   aria-label="Sign out"
                 >
                   <LogOut size={16} />
-                  <span className="toolbar-tooltip">Sign Out</span>
+                  <span className="toolbar-tooltip">{t("Sign Out")}</span>
                 </button>
               </div>
             </>
@@ -1630,27 +1645,28 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             aiCreatedIds={aiCreatedIds}
             centerOnIds={centerOnIds}
             onCenterComplete={() => setCenterOnIds([])}
+            cursorStrokeColor={cursorStrokeColor}
           />
         )}
       </div>
 
       {uid === undefined && (
         <div className="absolute top-4 left-52 z-40 pointer-events-none">
-          <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 border border-gray-200 shadow-sm">
-            Loading auth...
+          <div className="glass-panel text-sm rounded-lg px-3 py-2" style={{ color: "var(--text-primary)", boxShadow: "var(--shadow-elevated)" }}>
+            {t("Loading auth...")}
           </div>
         </div>
       )}
       {uid === null && (
         <div className="absolute top-4 left-52 z-40 pointer-events-none">
-          <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 space-y-2 border border-gray-200 shadow-sm max-w-xs">
-            <div>Not signed in on this route.</div>
+          <div className="glass-panel text-sm rounded-lg px-3 py-2 space-y-2 max-w-xs" style={{ color: "var(--text-primary)", boxShadow: "var(--shadow-elevated)" }}>
+            <div>{t("Not signed in on this route.")}</div>
             <div className="pointer-events-auto">
-              <button className="underline text-blue-600 cursor-pointer hover:text-blue-700" onClick={signInHere}>
-                Sign in with Google
+              <button className="underline cursor-pointer" style={{ color: "var(--text-accent)" }} onClick={signInHere}>
+                {t("Sign in with Google")}
               </button>
             </div>
-            <div className="text-gray-500 text-xs">
+            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
               Tip: use the same URL origin (prefer{" "}
               <Link className="underline pointer-events-auto" href="http://localhost:3000">
                 http://localhost:3000
@@ -1663,9 +1679,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
       {typeof uid === "string" && boardAccess === "not-found" && (
         <div className="absolute top-4 left-52 z-40 pointer-events-none">
-          <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 border border-gray-200 shadow-sm">
-            Board not found.{" "}
-            <Link href="/" className="underline text-blue-600 pointer-events-auto">
+          <div className="glass-panel text-sm rounded-lg px-3 py-2" style={{ color: "var(--text-primary)", boxShadow: "var(--shadow-elevated)" }}>
+            {t("Board not found.")}{" "}
+            <Link href="/" className="underline pointer-events-auto" style={{ color: "var(--text-accent)" }}>
               Go to My Boards
             </Link>
           </div>
@@ -1674,24 +1690,24 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       {typeof uid === "string" && boardAccess === "forbidden" && (
         <div className="absolute top-4 left-52 z-40">
           {isInviteLink ? (
-            <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-4 py-3 border border-gray-200 shadow-sm flex items-center gap-3">
+            <div className="glass-panel text-sm rounded-lg px-4 py-3 flex items-center gap-3" style={{ color: "var(--text-primary)", boxShadow: "var(--shadow-elevated)" }}>
               <span>You&apos;ve been invited to this board.</span>
               <button
                 type="button"
                 onClick={handleJoinBoard}
                 disabled={joiningBoard}
-                className="rounded-lg px-3 py-1 bg-gray-900 text-white text-xs font-medium hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                className="btn-primary rounded-lg px-3 py-1 text-xs font-medium disabled:opacity-50 transition-colors"
               >
-                {joiningBoard ? "Joining…" : "Join Board"}
+                {joiningBoard ? t("Joining…") : t("Join Board")}
               </button>
-              <Link href="/" className="text-xs text-gray-400 hover:text-gray-600 underline">
-                Decline
+              <Link href="/" className="text-xs underline" style={{ color: "var(--text-secondary)" }}>
+                {t("Decline")}
               </Link>
             </div>
           ) : (
-            <div className="text-sm bg-white/95 text-gray-700 rounded-lg px-3 py-2 border border-gray-200 shadow-sm pointer-events-none">
-              You don&apos;t have access to this board.{" "}
-              <Link href="/" className="underline text-blue-600 pointer-events-auto">
+            <div className="glass-panel text-sm rounded-lg px-3 py-2 pointer-events-none" style={{ color: "var(--text-primary)", boxShadow: "var(--shadow-elevated)" }}>
+              {t("You don't have access to this board.")}{" "}
+              <Link href="/" className="underline pointer-events-auto" style={{ color: "var(--text-accent)" }}>
                 Go to My Boards
               </Link>
             </div>
@@ -1701,7 +1717,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
       {createError && uid && boardAccess === "ok" && (
         <div className="absolute top-4 left-52 z-40 pointer-events-none">
-          <div className="text-sm bg-red-50 text-red-800 rounded-lg px-3 py-2 max-w-xs border border-red-200">
+          <div className="text-sm rounded-lg px-3 py-2 max-w-xs" style={{ background: "var(--accent-danger-bg)", color: "var(--accent-danger-text)", border: "1px solid var(--accent-danger-border)" }}>
             {createError}
           </div>
         </div>
