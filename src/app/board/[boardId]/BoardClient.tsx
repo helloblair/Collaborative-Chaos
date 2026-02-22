@@ -11,6 +11,23 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { BoardCanvas } from "./BoardCanvas";
+import SortingHatPanel from "@/components/SortingHatPanel";
+import {
+  MousePointer2,
+  Hand,
+  StickyNote,
+  Square,
+  Circle as CircleIcon,
+  Minus,
+  Heart,
+  Type,
+  Frame,
+  ArrowUpRight,
+  Trash2,
+  Copy,
+  Share2,
+  LogOut,
+} from "lucide-react";
 
 const STICKY_SIZE = 160;
 const RECT_WIDTH = 200;
@@ -97,7 +114,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const viewportRef = useRef<{ pos: { x: number; y: number }; scale: number }>({ pos: { x: 0, y: 0 }, scale: 1 });
   const pasteOffsetCountRef = useRef(0);
   const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null);
-  const [activeTool, setActiveTool] = useState<"select" | "connect" | "frame">("select");
+  const [activeTool, setActiveTool] = useState<"select" | "connect" | "frame" | "pan">("select");
   const [pendingFrameTitleId, setPendingFrameTitleId] = useState<string | null>(null);
   const [pendingTextEditId, setPendingTextEditId] = useState<string | null>(null);
   const [connectSourceId, setConnectSourceId] = useState<string | null>(null);
@@ -109,13 +126,12 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const retryRef = useRef(false);
   const localSessionId = useMemo(() => nanoid(), []);
 
-  // AI command bar state
-  const [aiCommandOpen, setAiCommandOpen] = useState(false);
-  const [aiCommandText, setAiCommandText] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
+  // AI animation state (used by Sorting Hat handler + BoardCanvas)
   const [aiCreatedIds, setAiCreatedIds] = useState<string[]>([]);
-  const aiInputRef = useRef<HTMLInputElement | null>(null);
+  const [centerOnIds, setCenterOnIds] = useState<string[]>([]);
+
+  // Sorting Hat chat panel state
+  const [hatPanelOpen, setHatPanelOpen] = useState(false);
 
   useEffect(() => {
     const measure = () =>
@@ -857,52 +873,54 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     return { viewportBounds, viewportObjects };
   }, [boardItems, viewportSize]);
 
-  // ── AI command handler ────────────────────────────────────────────────────
-
-  const handleAiCommand = useCallback(
-    async (command: string) => {
-      if (!uid || typeof uid !== "string") return;
+  // ── Sorting Hat chat command handler ──────────────────────────────────────
+  const handleHatSendCommand = useCallback(
+    async (
+      command: string,
+      history: Array<{ role: "user" | "assistant"; content: string }>
+    ): Promise<{
+      reply: string;
+      createdIds: string[];
+      results: Array<{ tool: string; id?: string; [k: string]: unknown }>;
+    }> => {
+      if (!uid || typeof uid !== "string") throw new Error("Not authenticated");
       const user = auth.currentUser;
-      if (!user) return;
+      if (!user) throw new Error("Not authenticated");
 
-      setAiLoading(true);
-      setAiError(null);
+      const token = await user.getIdToken();
+      const { viewportBounds, viewportObjects } = serializeViewport();
 
-      try {
-        const token = await user.getIdToken();
-        const { viewportBounds, viewportObjects } = serializeViewport();
+      const response = await fetch("/api/ai-command", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          command,
+          boardId,
+          viewportObjects,
+          viewportBounds,
+          conversationHistory: history,
+        }),
+      });
 
-        const response = await fetch("/api/ai-command", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ command, boardId, viewportObjects, viewportBounds }),
-        });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "AI command failed");
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || "AI command failed");
-        }
-
-        // Track created IDs for staggered entrance animation
-        const ids: string[] = data.createdIds ?? [];
-        if (ids.length > 0) {
-          setAiCreatedIds(ids);
-          // Clear after all animations complete (100ms/item + 500ms buffer)
-          setTimeout(() => setAiCreatedIds([]), ids.length * 100 + 800);
-        }
-
-        setAiCommandOpen(false);
-        setAiCommandText("");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "AI command failed";
-        setAiError(msg);
-      } finally {
-        setAiLoading(false);
+      // Track created IDs for staggered entrance animation + viewport centering
+      const ids: string[] = data.createdIds ?? [];
+      if (ids.length > 0) {
+        setAiCreatedIds(ids);
+        setCenterOnIds(ids);
+        setTimeout(() => setAiCreatedIds([]), ids.length * 100 + 800);
       }
+
+      return {
+        reply: data.reply ?? "",
+        createdIds: ids,
+        results: data.results ?? [],
+      };
     },
     [uid, boardId, serializeViewport]
   );
@@ -1130,36 +1148,23 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     []
   );
 
-  // Cmd+K: focus AI command bar when board is active; auto-open when authenticated
-  useEffect(() => {
-    if (aiCommandOpen) {
-      // Focus the input after the bar mounts
-      requestAnimationFrame(() => aiInputRef.current?.focus());
-    }
-  }, [aiCommandOpen]);
-
   // Keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const active = document.activeElement as HTMLElement | null;
       const mod = e.metaKey || e.ctrlKey;
 
-      // Cmd+K toggles the AI command bar regardless of focus state
+      // Cmd+K toggles the Sorting Hat panel
       if (mod && e.key === "k") {
         if (boardAccess !== "ok") return;
         e.preventDefault();
-        setAiCommandOpen((prev) => !prev);
-        setAiError(null);
+        setHatPanelOpen((prev) => !prev);
         return;
       }
 
       if (active?.tagName === "TEXTAREA" || active?.tagName === "INPUT") return;
 
       if (e.key === "Escape") {
-        if (aiCommandOpen) {
-          setAiCommandOpen(false);
-          return;
-        }
         setSelectedIds([]);
         if (activeTool === "connect") setConnectSourceId(null);
         if (activeTool !== "select") setActiveTool("select");
@@ -1191,11 +1196,28 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         } else if (selectedConnectorId) {
           handleDeleteConnector();
         }
+        return;
+      }
+
+      // Mode shortcuts (no modifier)
+      if (!mod) {
+        if (e.key === "v" || e.key === "V") {
+          setActiveTool("select");
+          setConnectSourceId(null);
+          return;
+        }
+        if (e.key === "h" || e.key === "H") {
+          setActiveTool("pan");
+          setConnectSourceId(null);
+          setSelectedIds([]);
+          setSelectedConnectorId(null);
+          return;
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedIds, selectedConnectorId, activeTool, aiCommandOpen, boardAccess, handleDeleteItems, handleDeleteConnector, handleDuplicate, handleCopy, handlePaste]);
+  }, [selectedIds, selectedConnectorId, activeTool, boardAccess, handleDeleteItems, handleDeleteConnector, handleDuplicate, handleCopy, handlePaste]);
 
   // E) Sort items so active/dragged renders on top; stable sort by activeItemId
   const sortedItems = useMemo(() => {
@@ -1260,7 +1282,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       onClick={handleBoardClick}
     >
       {/* Left sidebar */}
-      <aside className="fixed left-0 top-0 h-screen w-48 bg-white border-r border-gray-200 z-40 flex flex-col p-3 gap-2">
+      <aside className="fixed left-0 top-0 h-screen w-48 bg-white border-r border-gray-200 z-40 flex flex-col p-3 gap-1.5">
         <Link
           href="/"
           className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 font-medium text-sm transition-colors text-left"
@@ -1274,104 +1296,152 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         )}
         {uid && boardAccess === "ok" && (
           <>
-            <button
-              type="button"
-              onClick={handleAddSticky}
-              disabled={isCreating || activeTool !== "select"}
-              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
-              aria-label="Add sticky note"
-            >
-              {isCreating ? "Creating…" : "Add Sticky"}
-            </button>
-            <button
-              type="button"
-              onClick={handleAddRect}
-              disabled={isCreating || activeTool !== "select"}
-              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
-              aria-label="Add rectangle"
-            >
-              {isCreating ? "Creating…" : "Add Rectangle"}
-            </button>
-            <button
-              type="button"
-              onClick={handleAddCircle}
-              disabled={isCreating || activeTool !== "select"}
-              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
-              aria-label="Add circle"
-            >
-              {isCreating ? "Creating…" : "Add Circle"}
-            </button>
-            <button
-              type="button"
-              onClick={handleAddLine}
-              disabled={isCreating || activeTool !== "select"}
-              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
-              aria-label="Add line"
-            >
-              {isCreating ? "Creating…" : "Add Line"}
-            </button>
-            <button
-              type="button"
-              onClick={handleAddHeart}
-              disabled={isCreating || activeTool !== "select"}
-              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
-              aria-label="Add heart"
-            >
-              {isCreating ? "Creating…" : "Add Heart"}
-            </button>
-            <button
-              type="button"
-              onClick={handleAddText}
-              disabled={isCreating || activeTool !== "select"}
-              className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed text-gray-700 font-medium text-sm transition-colors text-left"
-              aria-label="Add text"
-            >
-              {isCreating ? "Creating…" : "Add Text"}
-            </button>
+            {/* ── Mode buttons: Select / Pan ── */}
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool("select");
+                  setConnectSourceId(null);
+                }}
+                className={`toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors ${
+                  activeTool === "select"
+                    ? "bg-gray-900 border-gray-900 text-white"
+                    : "bg-white border-gray-200 hover:bg-gray-100 text-gray-600"
+                }`}
+                aria-label="Select mode"
+              >
+                <MousePointer2 size={18} />
+                <span className="toolbar-tooltip">Select (V)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTool("pan");
+                  setConnectSourceId(null);
+                  setSelectedIds([]);
+                  setSelectedConnectorId(null);
+                }}
+                className={`toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors ${
+                  activeTool === "pan"
+                    ? "bg-gray-900 border-gray-900 text-white"
+                    : "bg-white border-gray-200 hover:bg-gray-100 text-gray-600"
+                }`}
+                aria-label="Pan mode"
+              >
+                <Hand size={18} />
+                <span className="toolbar-tooltip">Pan (Space+Drag)</span>
+              </button>
+            </div>
 
-            {/* Frame tool toggle */}
-            <button
-              type="button"
-              onClick={() => {
-                const next = activeTool === "frame" ? "select" : "frame";
-                setActiveTool(next);
-                setSelectedIds([]);
-                setSelectedConnectorId(null);
-              }}
-              className={`w-full rounded-lg px-3 py-2 border font-medium text-sm transition-colors text-left ${
-                activeTool === "frame"
-                  ? "bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700"
-                  : "bg-white border-gray-200 hover:bg-gray-100 text-gray-700"
-              }`}
-              aria-label="Add frame"
-            >
-              {activeTool === "frame" ? "Click & drag…" : "Frame"}
-            </button>
+            <hr className="border-gray-200" />
 
-            {/* Connect tool toggle */}
-            <button
-              type="button"
-              onClick={() => {
-                const next = activeTool === "connect" ? "select" : "connect";
-                setActiveTool(next);
-                setConnectSourceId(null);
-                setSelectedIds([]);
-                setSelectedConnectorId(null);
-              }}
-              className={`w-full rounded-lg px-3 py-2 border font-medium text-sm transition-colors text-left ${
-                activeTool === "connect"
-                  ? "bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
-                  : "bg-white border-gray-200 hover:bg-gray-100 text-gray-700"
-              }`}
-              aria-label="Connect objects"
-            >
-              {activeTool === "connect"
-                ? connectSourceId
-                  ? "Click target…"
-                  : "Click source…"
-                : "Connect"}
-            </button>
+            {/* ── Creation tools grid ── */}
+            <div className="grid grid-cols-3 gap-1">
+              <button
+                type="button"
+                onClick={handleAddSticky}
+                disabled={isCreating || activeTool !== "select"}
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                aria-label="Add sticky note"
+              >
+                <StickyNote size={18} />
+                <span className="toolbar-tooltip">Sticky Note</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleAddRect}
+                disabled={isCreating || activeTool !== "select"}
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                aria-label="Add rectangle"
+              >
+                <Square size={18} />
+                <span className="toolbar-tooltip">Rectangle</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleAddCircle}
+                disabled={isCreating || activeTool !== "select"}
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                aria-label="Add circle"
+              >
+                <CircleIcon size={18} />
+                <span className="toolbar-tooltip">Circle</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleAddLine}
+                disabled={isCreating || activeTool !== "select"}
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                aria-label="Add line"
+              >
+                <Minus size={18} />
+                <span className="toolbar-tooltip">Line</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleAddHeart}
+                disabled={isCreating || activeTool !== "select"}
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                aria-label="Add heart"
+              >
+                <Heart size={18} />
+                <span className="toolbar-tooltip">Heart</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleAddText}
+                disabled={isCreating || activeTool !== "select"}
+                className="toolbar-btn flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 transition-colors"
+                aria-label="Add text"
+              >
+                <Type size={18} />
+                <span className="toolbar-tooltip">Text</span>
+              </button>
+            </div>
 
+            {/* ── Special tools: Frame / Connect ── */}
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const next = activeTool === "frame" ? "select" : "frame";
+                  setActiveTool(next);
+                  setSelectedIds([]);
+                  setSelectedConnectorId(null);
+                }}
+                className={`toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors ${
+                  activeTool === "frame"
+                    ? "bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700"
+                    : "bg-white border-gray-200 hover:bg-gray-100 text-gray-600"
+                }`}
+                aria-label="Add frame"
+              >
+                <Frame size={18} />
+                <span className="toolbar-tooltip">Frame</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = activeTool === "connect" ? "select" : "connect";
+                  setActiveTool(next);
+                  setConnectSourceId(null);
+                  setSelectedIds([]);
+                  setSelectedConnectorId(null);
+                }}
+                className={`toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border transition-colors ${
+                  activeTool === "connect"
+                    ? "bg-blue-600 border-blue-600 text-white hover:bg-blue-700"
+                    : "bg-white border-gray-200 hover:bg-gray-100 text-gray-600"
+                }`}
+                aria-label="Connect objects"
+              >
+                <ArrowUpRight size={18} />
+                <span className="toolbar-tooltip">Connect</span>
+              </button>
+            </div>
+
+            {/* ── Selection controls ── */}
             {hasSelection && activeTool === "select" && (
               <>
                 <hr className="border-gray-200" />
@@ -1442,14 +1512,26 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                     )}
                   </>
                 )}
-                <button
-                  type="button"
-                  onClick={handleDeleteItems}
-                  className="w-full rounded-lg px-3 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 font-medium text-sm transition-colors text-left"
-                  aria-label="Delete selected items"
-                >
-                  {isMultiSelect ? `Delete (${selectedIds.length})` : "Delete"}
-                </button>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={handleDuplicate}
+                    className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 text-gray-600 transition-colors"
+                    aria-label="Duplicate selected items"
+                  >
+                    <Copy size={16} />
+                    <span className="toolbar-tooltip">{`Duplicate (${navigator.platform?.includes("Mac") ? "⌘" : "Ctrl+"}D)`}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteItems}
+                    className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border border-red-200 bg-white hover:bg-red-50 text-red-500 transition-colors"
+                    aria-label="Delete selected items"
+                  >
+                    <Trash2 size={16} />
+                    <span className="toolbar-tooltip">Delete (Del)</span>
+                  </button>
+                </div>
               </>
             )}
 
@@ -1460,10 +1542,11 @@ export default function BoardClient({ boardId }: { boardId: string }) {
                 <button
                   type="button"
                   onClick={handleDeleteConnector}
-                  className="w-full rounded-lg px-3 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 font-medium text-sm transition-colors text-left"
+                  className="toolbar-btn w-full flex items-center justify-center rounded-lg p-2 border border-red-200 bg-white hover:bg-red-50 text-red-500 transition-colors"
                   aria-label="Delete selected connector"
                 >
-                  Delete Connector
+                  <Trash2 size={16} />
+                  <span className="toolbar-tooltip">Delete Connector</span>
                 </button>
               </>
             )}
@@ -1486,33 +1569,29 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           </>
         )}
 
-        <div className="mt-auto flex flex-col gap-2">
+        <div className="mt-auto flex flex-col gap-1.5">
           {uid && boardAccess === "ok" && (
             <>
-              {/* AI command button */}
-              <button
-                type="button"
-                onClick={() => { setAiCommandOpen(true); setAiError(null); }}
-                className="w-full rounded-lg px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white font-medium text-sm transition-colors text-left flex items-center gap-2"
-                aria-label="Open AI command bar"
-              >
-                <span>✦ Ask AI</span>
-                <span className="ml-auto text-violet-200 text-xs font-mono">⌘K</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleShareLink}
-                className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-medium text-sm transition-colors text-left"
-              >
-                {copyFeedback ? "Link copied!" : "Share…"}
-              </button>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="w-full rounded-lg px-3 py-2 bg-white border border-gray-200 hover:bg-gray-100 text-gray-500 font-medium text-sm transition-colors text-left"
-              >
-                Sign Out
-              </button>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={handleShareLink}
+                  className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 transition-colors"
+                  aria-label="Share board"
+                >
+                  <Share2 size={16} />
+                  <span className="toolbar-tooltip">{copyFeedback ? "Link copied!" : "Share"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="toolbar-btn flex-1 flex items-center justify-center rounded-lg p-2 border border-gray-200 bg-white hover:bg-gray-100 text-gray-500 transition-colors"
+                  aria-label="Sign out"
+                >
+                  <LogOut size={16} />
+                  <span className="toolbar-tooltip">Sign Out</span>
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -1549,6 +1628,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             frameTitleEditingId={pendingFrameTitleId}
             textEditingId={pendingTextEditId}
             aiCreatedIds={aiCreatedIds}
+            centerOnIds={centerOnIds}
+            onCenterComplete={() => setCenterOnIds([])}
           />
         )}
       </div>
@@ -1626,93 +1707,6 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         </div>
       )}
 
-      {/* AI command bar overlay */}
-      {aiCommandOpen && uid && boardAccess === "ok" && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center pb-8 pointer-events-none"
-          style={{ paddingLeft: SIDEBAR_WIDTH }}
-        >
-          <div
-            className="pointer-events-auto w-full max-w-xl mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Backdrop click to close */}
-            <div
-              className="fixed inset-0 -z-10"
-              onClick={() => { setAiCommandOpen(false); setAiError(null); }}
-            />
-            <form
-              className="relative bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (aiCommandText.trim() && !aiLoading) {
-                  handleAiCommand(aiCommandText.trim());
-                }
-              }}
-            >
-              <div className="flex items-center px-4 py-3 gap-3">
-                <span className="text-violet-500 text-lg select-none flex-shrink-0">✦</span>
-                <input
-                  ref={aiInputRef}
-                  type="text"
-                  value={aiCommandText}
-                  onChange={(e) => setAiCommandText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") { setAiCommandOpen(false); setAiError(null); }
-                  }}
-                  placeholder="Ask AI to do something…"
-                  className="flex-1 bg-transparent outline-none text-sm text-gray-900 placeholder:text-gray-400"
-                  disabled={aiLoading}
-                  autoComplete="off"
-                />
-                {aiLoading ? (
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <svg className="animate-spin h-4 w-4 text-violet-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    Thinking…
-                  </div>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={!aiCommandText.trim()}
-                    className="rounded-lg px-3 py-1.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
-                  >
-                    Run
-                  </button>
-                )}
-              </div>
-              {aiError && (
-                <div className="px-4 py-2 bg-red-50 border-t border-red-100 text-xs text-red-700">
-                  {aiError}
-                </div>
-              )}
-              <div className="px-4 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-3 text-xs text-gray-400">
-                <span>Try: &quot;Create a SWOT analysis&quot; · &quot;Add 3 sticky notes for ideas&quot; · &quot;Arrange selected items in a grid&quot;</span>
-                <span className="ml-auto font-mono">Esc to close</span>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* AI error toast (shown when bar is closed but error persists) */}
-      {aiError && !aiCommandOpen && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 pointer-events-auto" style={{ marginLeft: SIDEBAR_WIDTH / 2 }}>
-          <div className="flex items-center gap-3 bg-red-600 text-white text-sm rounded-xl px-4 py-3 shadow-lg">
-            <span>{aiError}</span>
-            <button
-              type="button"
-              onClick={() => setAiError(null)}
-              className="text-red-200 hover:text-white transition-colors text-xs"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-
       {showDebug && (
         <div className="fixed bottom-4 right-4 z-50 bg-gray-900 text-gray-100 text-xs font-mono rounded-lg p-3 shadow-lg max-w-xs overflow-auto max-h-48">
           <div className="font-semibold text-amber-400 mb-2">RTDB debug</div>
@@ -1749,6 +1743,15 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             Stress Test: Add 500 Items
           </button>
         </div>
+      )}
+
+      {/* Sorting Hat chat panel */}
+      {uid && boardAccess === "ok" && (
+        <SortingHatPanel
+          isOpen={hatPanelOpen}
+          onToggle={() => setHatPanelOpen((prev) => !prev)}
+          onSendCommand={handleHatSendCommand}
+        />
       )}
 
       {/* DOM stickies hidden — rendered via Konva */}

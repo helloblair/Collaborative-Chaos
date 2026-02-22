@@ -1,9 +1,9 @@
 "use client";
 
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { createBoard, deleteBoard, subscribeUserBoards } from "@/lib/boards";
 import { upsertUserProfile } from "@/lib/users";
-import type { Board } from "@/types/board";
+import type { Board, BoardItem } from "@/types/board";
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
@@ -11,6 +11,7 @@ import {
   signOut,
   type User,
 } from "firebase/auth";
+import { collection, onSnapshot } from "firebase/firestore";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -30,6 +31,183 @@ function relativeTime(ts: unknown): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
   return `${Math.floor(diff / 86_400_000)}d ago`;
+}
+
+// Default fill colors by item type (matches BoardCanvas defaults)
+const DEFAULT_FILLS: Record<string, string> = {
+  sticky: "#C9E4DE",
+  rect: "#C6DEF1",
+  circle: "#C6DEF1",
+  heart: "#FFD7D7",
+  line: "#374151",
+  frame: "#6366f1",
+  text: "#1c1917",
+};
+
+const DEFAULT_SIZES: Record<string, { w: number; h: number }> = {
+  sticky: { w: 160, h: 160 },
+  rect: { w: 200, h: 120 },
+  circle: { w: 150, h: 150 },
+  heart: { w: 120, h: 120 },
+  line: { w: 200, h: 4 },
+  frame: { w: 300, h: 200 },
+  text: { w: 200, h: 30 },
+};
+
+// Deterministic rotation per board ID (-2deg to +2deg)
+function polaroidRotation(boardId: string): number {
+  let h = 0;
+  for (let i = 0; i < boardId.length; i++) h = (h * 31 + boardId.charCodeAt(i)) >>> 0;
+  return ((h % 500) / 500) * 4 - 2; // range: -2 to +2
+}
+
+function BoardThumbnail({ boardId }: { boardId: string }) {
+  const [items, setItems] = useState<BoardItem[]>([]);
+
+  useEffect(() => {
+    const itemsRef = collection(db, "boards", boardId, "items");
+    return onSnapshot(
+      itemsRef,
+      (snap) => {
+        setItems(
+          snap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              type: data.type ?? "sticky",
+              x: data.x ?? 0,
+              y: data.y ?? 0,
+              width: data.width,
+              height: data.height,
+              fill: data.fill,
+              createdBy: data.createdBy ?? "",
+            } as BoardItem;
+          })
+        );
+      },
+      () => {
+        // Permission denied or other error — show empty
+        setItems([]);
+      }
+    );
+  }, [boardId]);
+
+  if (items.length === 0) {
+    return (
+      <div className="w-full h-full bg-gray-100 flex items-center justify-center rounded-sm">
+        <span className="text-xs text-gray-400 select-none">Empty board</span>
+      </div>
+    );
+  }
+
+  // Compute bounding box of all items, then scale to fit
+  const rects = items.map((item) => {
+    const w = item.width ?? DEFAULT_SIZES[item.type]?.w ?? 160;
+    const h = item.height ?? DEFAULT_SIZES[item.type]?.h ?? 160;
+    return { x: item.x, y: item.y, w, h, type: item.type, fill: item.fill };
+  });
+
+  const minX = Math.min(...rects.map((r) => r.x));
+  const minY = Math.min(...rects.map((r) => r.y));
+  const maxX = Math.max(...rects.map((r) => r.x + r.w));
+  const maxY = Math.max(...rects.map((r) => r.y + r.h));
+  const bboxW = maxX - minX || 1;
+  const bboxH = maxY - minY || 1;
+
+  // SVG viewBox with 5% padding
+  const pad = Math.max(bboxW, bboxH) * 0.05;
+  const viewBox = `${minX - pad} ${minY - pad} ${bboxW + pad * 2} ${bboxH + pad * 2}`;
+
+  return (
+    <svg viewBox={viewBox} className="w-full h-full rounded-sm bg-gray-50" preserveAspectRatio="xMidYMid meet">
+      {rects.map((r, i) => {
+        const fill = r.fill ?? DEFAULT_FILLS[r.type] ?? "#C9E4DE";
+        if (r.type === "circle") {
+          return (
+            <ellipse
+              key={i}
+              cx={r.x + r.w / 2}
+              cy={r.y + r.h / 2}
+              rx={r.w / 2}
+              ry={r.h / 2}
+              fill={fill}
+              opacity={0.85}
+            />
+          );
+        }
+        if (r.type === "heart") {
+          return (
+            <ellipse
+              key={i}
+              cx={r.x + r.w / 2}
+              cy={r.y + r.h / 2}
+              rx={r.w / 2}
+              ry={r.h / 2}
+              fill={fill}
+              opacity={0.85}
+            />
+          );
+        }
+        if (r.type === "line") {
+          return (
+            <line
+              key={i}
+              x1={r.x}
+              y1={r.y + r.h / 2}
+              x2={r.x + r.w}
+              y2={r.y + r.h / 2}
+              stroke={fill}
+              strokeWidth={Math.max(3, bboxW * 0.004)}
+            />
+          );
+        }
+        if (r.type === "frame") {
+          return (
+            <rect
+              key={i}
+              x={r.x}
+              y={r.y}
+              width={r.w}
+              height={r.h}
+              fill="none"
+              stroke={fill}
+              strokeWidth={Math.max(2, bboxW * 0.003)}
+              strokeDasharray={`${bboxW * 0.01} ${bboxW * 0.005}`}
+              opacity={0.6}
+              rx={2}
+            />
+          );
+        }
+        if (r.type === "text") {
+          return (
+            <rect
+              key={i}
+              x={r.x}
+              y={r.y}
+              width={r.w}
+              height={r.h}
+              fill={fill}
+              opacity={0.25}
+              rx={2}
+            />
+          );
+        }
+        // sticky, rect — solid rounded rect
+        return (
+          <rect
+            key={i}
+            x={r.x}
+            y={r.y}
+            width={r.w}
+            height={r.h}
+            fill={fill}
+            rx={r.type === "sticky" ? 6 : 3}
+            opacity={0.85}
+          />
+        );
+      })}
+    </svg>
+  );
 }
 
 export default function Home() {
@@ -129,7 +307,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold text-gray-900">My Boards</h1>
@@ -151,7 +329,7 @@ export default function Home() {
         {showNewBoard ? (
           <form
             onSubmit={handleCreateBoard}
-            className="mb-4 flex gap-2 items-center bg-white border border-gray-200 rounded-xl p-3"
+            className="mb-6 flex gap-2 items-center bg-white border border-gray-200 rounded-xl p-3"
           >
             <input
               ref={nameInputRef}
@@ -182,75 +360,98 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setShowNewBoard(true)}
-            className="mb-4 rounded-lg px-4 py-2 bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-colors"
+            className="mb-6 rounded-lg px-4 py-2 bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-colors"
           >
             + New Board
           </button>
         )}
 
-        {/* Board list */}
+        {/* Board grid — polaroid cards */}
         {boards.length === 0 ? (
           <div className="text-center py-16 text-gray-400 text-sm">
             No boards yet. Create one to get started.
           </div>
         ) : (
-          <ul className="space-y-2">
-            {boards.map((board) => (
-              <li key={board.id} className="group relative">
-                <Link
-                  href={`/board/${board.id}`}
-                  className="flex items-center gap-4 w-full rounded-xl border border-gray-200 bg-white px-5 py-4 hover:border-gray-300 hover:shadow-sm transition-all"
-                >
-                  {/* Avatar stack */}
-                  <div className="flex -space-x-2 shrink-0">
-                    {board.memberEmails.slice(0, 3).map((email, i) => (
-                      <span
-                        key={email}
-                        title={email}
-                        className="w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-white text-xs font-semibold uppercase"
-                        style={{ background: avatarColor(email), zIndex: 3 - i }}
-                      >
-                        {email[0]}
-                      </span>
-                    ))}
-                    {board.memberEmails.length > 3 && (
-                      <span className="w-7 h-7 rounded-full border-2 border-white bg-gray-200 flex items-center justify-center text-gray-600 text-xs font-medium">
-                        +{board.memberEmails.length - 3}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Board name */}
-                  <span className="flex-1 font-medium text-gray-900 truncate">
-                    {board.name}
-                  </span>
-
-                  {/* Metadata */}
-                  <div className="flex items-center gap-3 text-xs text-gray-400 shrink-0">
-                    <span>{board.members.length} member{board.members.length !== 1 ? "s" : ""}</span>
-                    <span>{relativeTime(board.updatedAt)}</span>
-                    <span className="text-gray-300">Open →</span>
-                  </div>
-                </Link>
-
-                {/* Delete (owner only) */}
-                {user.uid === board.createdBy && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      handleDeleteBoard(board.id);
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+            {boards.map((board) => {
+              const rotation = polaroidRotation(board.id);
+              return (
+                <div key={board.id} className="group relative">
+                  <Link
+                    href={`/board/${board.id}`}
+                    className="block bg-white rounded-md p-2.5 pb-5 shadow-md hover:shadow-xl transition-all duration-200 ease-out"
+                    style={{
+                      transform: `rotate(${rotation}deg)`,
                     }}
-                    disabled={deletingId === board.id}
-                    title="Delete board"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity rounded-md p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:cursor-not-allowed"
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "rotate(0deg) translateY(-4px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = `rotate(${rotation}deg)`;
+                    }}
                   >
-                    {deletingId === board.id ? "…" : "✕"}
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
+                    {/* Board name — top label */}
+                    <p
+                      className="text-sm font-semibold text-gray-800 truncate mb-2 px-0.5"
+                      style={{ fontStyle: "italic" }}
+                      title={board.name}
+                    >
+                      {board.name}
+                    </p>
+
+                    {/* Thumbnail preview area */}
+                    <div className="aspect-[4/3] w-full overflow-hidden rounded-sm bg-gray-100">
+                      <BoardThumbnail boardId={board.id} />
+                    </div>
+
+                    {/* Bottom metadata */}
+                    <div className="mt-2.5 flex items-center gap-2 px-0.5">
+                      {/* Avatar stack */}
+                      <div className="flex -space-x-1.5 shrink-0">
+                        {board.memberEmails.slice(0, 3).map((email, i) => (
+                          <span
+                            key={email}
+                            title={email}
+                            className="w-5 h-5 rounded-full border-2 border-white flex items-center justify-center text-white text-[9px] font-semibold uppercase"
+                            style={{ background: avatarColor(email), zIndex: 3 - i }}
+                          >
+                            {email[0]}
+                          </span>
+                        ))}
+                        {board.memberEmails.length > 3 && (
+                          <span className="w-5 h-5 rounded-full border-2 border-white bg-gray-200 flex items-center justify-center text-gray-600 text-[9px] font-medium">
+                            +{board.memberEmails.length - 3}
+                          </span>
+                        )}
+                      </div>
+
+                      <span className="text-[10px] text-gray-400 truncate">
+                        {board.members.length} member{board.members.length !== 1 ? "s" : ""}
+                        {relativeTime(board.updatedAt) ? ` · ${relativeTime(board.updatedAt)}` : ""}
+                      </span>
+                    </div>
+                  </Link>
+
+                  {/* Delete (owner only) — top-right corner on hover */}
+                  {user.uid === board.createdBy && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleDeleteBoard(board.id);
+                      }}
+                      disabled={deletingId === board.id}
+                      title="Delete board"
+                      className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 transition-opacity rounded-full w-6 h-6 flex items-center justify-center bg-white border border-gray-200 shadow-sm text-gray-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 disabled:cursor-not-allowed text-xs z-10"
+                    >
+                      {deletingId === board.id ? "…" : "✕"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </main>

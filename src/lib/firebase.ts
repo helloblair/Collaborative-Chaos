@@ -1,7 +1,11 @@
 import { initializeApp } from "firebase/app";
 import { browserLocalPersistence, getAuth, setPersistence } from "firebase/auth";
 import { getDatabase } from "firebase/database";
-import { initializeFirestore, persistentLocalCache } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -20,5 +24,9 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence).catch(console.error);
 export const rtdb = getDatabase(app);
-export const db = initializeFirestore(app, { localCache: persistentLocalCache() });
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+});
 
