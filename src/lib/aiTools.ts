@@ -311,6 +311,10 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
             type: ["number", "null"],
             description: "Y coordinate of the center of the 2x2 grid. Defaults to viewport center.",
           },
+          topic: {
+            type: ["string", "null"],
+            description: "Short topic label for the wrapper frame title, e.g. 'Coffee Shop'. The wrapper title becomes 'SWOT Analysis — Coffee Shop'. Pass null for a generic title.",
+          },
           content: {
             type: ["object", "null"],
             description:
@@ -341,7 +345,7 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
             additionalProperties: false,
           },
         },
-        required: ["centerX", "centerY", "content"],
+        required: ["centerX", "centerY", "content", "topic"],
         additionalProperties: false,
       },
     },
@@ -370,6 +374,10 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
             type: ["number", "null"],
             description: "Y coordinate of the center of the row. Defaults to viewport center.",
           },
+          topic: {
+            type: ["string", "null"],
+            description: "Short topic label for the wrapper frame title, e.g. 'New User Onboarding'. The wrapper title becomes 'User Journey Map — New User Onboarding'. Pass null for a generic title.",
+          },
           stageContent: {
             type: ["array", "null"],
             items: {
@@ -388,7 +396,7 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
               "Array of sticky content objects, one per stage (same order as stages). Pass null for a blank template.",
           },
         },
-        required: ["stages", "centerX", "centerY", "stageContent"],
+        required: ["stages", "centerX", "centerY", "stageContent", "topic"],
         additionalProperties: false,
       },
     },
@@ -411,6 +419,10 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
           centerY: {
             type: ["number", "null"],
             description: "Y coordinate of the center of the layout. Defaults to viewport center.",
+          },
+          topic: {
+            type: ["string", "null"],
+            description: "Short topic label for the wrapper frame title, e.g. 'Sprint 12'. The wrapper title becomes 'Retrospective — Sprint 12'. Pass null for a generic title.",
           },
           content: {
             type: ["object", "null"],
@@ -437,7 +449,7 @@ export const AI_TOOLS: OpenAI.ChatCompletionTool[] = [
             additionalProperties: false,
           },
         },
-        required: ["centerX", "centerY", "content"],
+        required: ["centerX", "centerY", "content", "topic"],
         additionalProperties: false,
       },
     },
@@ -456,7 +468,7 @@ For template commands, ALWAYS use the dedicated template tools:
 - "retrospective" or "retro" → call createRetroTemplate with content parameter
 
 IMPORTANT — Template content:
-When the user asks for a template about a SPECIFIC TOPIC (e.g. "SWOT analysis for a coffee shop"), include the content directly in the template tool call. Each template tool accepts a content/stageContent parameter where you provide the sticky note texts for each section. The server will automatically position all sticky notes in a perfect grid layout inside each frame — do NOT call createStickyNote separately after a template tool.
+When the user asks for a template about a SPECIFIC TOPIC (e.g. "SWOT analysis for a coffee shop"), include the content directly in the template tool call AND set the topic parameter to a short label (e.g. "Coffee Shop"). This makes the wrapper frame title contextual — "SWOT Analysis — Coffee Shop" instead of just "SWOT Analysis". Each template tool accepts a content/stageContent parameter where you provide the sticky note texts for each section. The server will automatically position all sticky notes in a perfect grid layout inside each frame — do NOT call createStickyNote separately after a template tool. For blank templates, pass null for both content and topic.
 
 When the user asks for a BLANK template (e.g. "create a blank SWOT"), pass null for the content parameter.
 
