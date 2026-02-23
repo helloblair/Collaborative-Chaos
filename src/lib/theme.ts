@@ -2,63 +2,68 @@
 
 export type ThemeMode = "aurora" | "magic";
 
-/* ─── Aurora Theme: Mixed purple-to-blue gradient mesh, teal/cyan accents ─── */
+/* ─── Aurora Theme: Deep navy-teal glassmorphism (INITY reference palette) ──── */
+/* #143454 deep navy | #1f536d dark teal-blue | #07646b dark teal               */
+/* #33909e medium teal | #84b5c2 muted teal | #8dbed5 sky blue | #7cd2cc cyan   */
 export const auroraVars: Record<string, string> = {
   // Surfaces
-  "--surface-bg": "#0a0618",
+  "--surface-bg": "#143454",
   "--surface-bg-gradient":
-    "radial-gradient(ellipse at 20% 50%, rgba(88, 28, 135, 0.15) 0%, transparent 50%), " +
-    "radial-gradient(ellipse at 80% 20%, rgba(59, 130, 246, 0.12) 0%, transparent 50%), " +
-    "radial-gradient(ellipse at 50% 80%, rgba(236, 72, 153, 0.08) 0%, transparent 50%), " +
-    "radial-gradient(ellipse at 70% 60%, rgba(20, 184, 166, 0.06) 0%, transparent 40%), " +
-    "linear-gradient(180deg, #0f0a1a 0%, #0a0618 100%)",
-  "--surface-panel": "rgba(15, 10, 30, 0.75)",
-  "--surface-panel-border": "rgba(139, 92, 246, 0.15)",
-  "--surface-input": "rgba(15, 10, 30, 0.6)",
-  "--surface-input-border": "rgba(99, 102, 241, 0.3)",
-  "--surface-elevated": "rgba(15, 10, 30, 0.92)",
+    "radial-gradient(ellipse at 30% 15%, rgba(124, 210, 204, 0.14) 0%, transparent 50%), " +
+    "radial-gradient(ellipse at 75% 55%, rgba(51, 144, 158, 0.12) 0%, transparent 50%), " +
+    "radial-gradient(ellipse at 50% 85%, rgba(141, 190, 213, 0.08) 0%, transparent 50%), " +
+    "radial-gradient(ellipse at 15% 65%, rgba(7, 100, 107, 0.10) 0%, transparent 40%), " +
+    "linear-gradient(170deg, #1f536d 0%, #143454 60%, #0f2a44 100%)",
+  "--surface-panel": "rgba(31, 83, 109, 0.65)",
+  "--surface-panel-border": "rgba(124, 210, 204, 0.15)",
+  "--surface-input": "rgba(20, 52, 84, 0.7)",
+  "--surface-input-border": "rgba(51, 144, 158, 0.35)",
+  "--surface-elevated": "rgba(20, 52, 84, 0.92)",
 
   // Text
-  "--text-primary": "rgba(255, 255, 255, 0.88)",
-  "--text-secondary": "#c4b5fd",
-  "--text-muted": "rgba(139, 92, 246, 0.6)",
-  "--text-heading": "#e0e7ff",
-  "--text-accent": "#67e8f9",
+  "--text-primary": "rgba(255, 255, 255, 0.92)",
+  "--text-secondary": "#8dbed5",
+  "--text-muted": "rgba(132, 181, 194, 0.55)",
+  "--text-heading": "#e0f4ff",
+  "--text-accent": "#7cd2cc",
   "--text-on-accent": "#ffffff",
 
   // Borders
-  "--border-default": "rgba(139, 92, 246, 0.2)",
-  "--border-subtle": "rgba(139, 92, 246, 0.1)",
-  "--border-focus": "#818cf8",
+  "--border-default": "rgba(124, 210, 204, 0.2)",
+  "--border-subtle": "rgba(124, 210, 204, 0.1)",
+  "--border-focus": "#7cd2cc",
 
   // Accent / interactive
-  "--accent-primary": "#6366f1",
-  "--accent-primary-hover": "#818cf8",
-  "--accent-active-bg": "linear-gradient(135deg, #6366f1, #8b5cf6)",
-  "--accent-active-border": "#818cf8",
-  "--accent-secondary-bg": "rgba(99, 102, 241, 0.1)",
-  "--accent-secondary-hover": "rgba(99, 102, 241, 0.2)",
+  "--accent-primary": "rgba(51, 144, 158, 0.35)",
+  "--accent-primary-hover": "rgba(51, 144, 158, 0.5)",
+  "--accent-active-bg": "linear-gradient(135deg, rgba(7, 100, 107, 0.45), rgba(51, 144, 158, 0.3))",
+  "--accent-active-border": "#7cd2cc",
+  "--accent-secondary-bg": "rgba(51, 144, 158, 0.1)",
+  "--accent-secondary-hover": "rgba(51, 144, 158, 0.2)",
   "--accent-danger-bg": "rgba(127, 29, 29, 0.25)",
   "--accent-danger-border": "rgba(239, 68, 68, 0.3)",
   "--accent-danger-text": "#fca5a5",
   "--accent-danger-hover-bg": "rgba(127, 29, 29, 0.4)",
 
   // Effects
-  "--glow-primary": "rgba(99, 102, 241, 0.3)",
-  "--glow-secondary": "rgba(139, 92, 246, 0.15)",
-  "--blur-glass": "12px",
-  "--shadow-card": "0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.04)",
-  "--shadow-elevated": "0 4px 20px rgba(0, 0, 0, 0.3)",
+  "--glow-primary": "rgba(124, 210, 204, 0.3)",
+  "--glow-secondary": "rgba(141, 190, 213, 0.15)",
+  "--glow-teal": "rgba(124, 210, 204, 0.3)",
+  "--glow-lilac": "rgba(141, 190, 213, 0.3)",
+  "--blur-glass": "20px",
+  "--shadow-card": "0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06)",
+  "--shadow-elevated": "0 4px 20px rgba(0, 0, 0, 0.35)",
 
   // Glass
-  "--glass-bg": "rgba(255, 255, 255, 0.04)",
-  "--glass-border": "rgba(255, 255, 255, 0.08)",
-  "--glass-shadow": "0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+  "--glass-bg": "rgba(255, 255, 255, 0.08)",
+  "--glass-bg-hover": "rgba(255, 255, 255, 0.14)",
+  "--glass-border": "rgba(255, 255, 255, 0.15)",
+  "--glass-shadow": "0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
 
   // Tooltip
-  "--tooltip-bg": "rgba(10, 6, 24, 0.95)",
-  "--tooltip-text": "#e0e7ff",
-  "--tooltip-border": "rgba(99, 102, 241, 0.25)",
+  "--tooltip-bg": "rgba(20, 52, 84, 0.95)",
+  "--tooltip-text": "#e0f4ff",
+  "--tooltip-border": "rgba(124, 210, 204, 0.25)",
 
   // Typography
   "--font-heading": "'Geist', ui-sans-serif, system-ui, sans-serif",
@@ -68,7 +73,35 @@ export const auroraVars: Record<string, string> = {
   "--transition-theme": "0.6s",
 
   // Presence cursor stroke
-  "--cursor-stroke": "#0f0a1a",
+  "--cursor-stroke": "#143454",
+
+  // Board canvas
+  "--board-bg": "#f5f5f5",
+  "--board-grid-color": "#f3f4f6",
+
+  // Chat panel
+  "--chat-panel-bg": "linear-gradient(180deg, rgba(31, 83, 109, 0.95) 0%, rgba(20, 52, 84, 0.98) 100%)",
+  "--chat-panel-border": "rgba(124, 210, 204, 0.15)",
+  "--chat-header-border": "rgba(124, 210, 204, 0.15)",
+  "--chat-accent": "#7cd2cc",
+  "--chat-accent-bg": "rgba(51, 144, 158, 0.45)",
+  "--chat-accent-border": "rgba(124, 210, 204, 0.3)",
+  "--chat-user-bg": "rgba(51, 144, 158, 0.18)",
+  "--chat-user-border": "rgba(124, 210, 204, 0.12)",
+  "--chat-user-text": "#e0f4ff",
+  "--chat-assistant-bg": "rgba(141, 190, 213, 0.12)",
+  "--chat-assistant-border": "rgba(141, 190, 213, 0.08)",
+  "--chat-assistant-text": "rgba(255, 255, 255, 0.85)",
+  "--chat-system-bg": "rgba(124, 210, 204, 0.1)",
+  "--chat-system-text": "rgba(124, 210, 204, 0.7)",
+  "--chat-input-bg": "rgba(255, 255, 255, 0.06)",
+  "--chat-input-border": "rgba(124, 210, 204, 0.15)",
+  "--chat-heading": "#e0f4ff",
+  "--chat-hint": "rgba(132, 181, 194, 0.4)",
+  "--chat-dot": "rgba(124, 210, 204, 0.7)",
+  "--chat-fab-bg": "linear-gradient(135deg, rgba(7, 100, 107, 0.5), rgba(51, 144, 158, 0.35), rgba(141, 190, 213, 0.3))",
+  "--chat-fab-border": "rgba(124, 210, 204, 0.3)",
+  "--chat-fab-color": "#e0f4ff",
 };
 
 /* ─── Magic Theme: Harry Potter — parchment, burgundy, gold ──────────────── */
@@ -118,8 +151,12 @@ export const magicVars: Record<string, string> = {
   "--shadow-card": "0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.02)",
   "--shadow-elevated": "0 4px 20px rgba(0, 0, 0, 0.4)",
 
+  "--glow-teal": "rgba(251, 191, 36, 0.2)",
+  "--glow-lilac": "rgba(139, 90, 43, 0.15)",
+
   // Glass (parchment-style)
   "--glass-bg": "rgba(62, 39, 24, 0.6)",
+  "--glass-bg-hover": "rgba(62, 39, 24, 0.75)",
   "--glass-border": "rgba(139, 90, 43, 0.25)",
   "--glass-shadow": "0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.03)",
 
@@ -137,11 +174,40 @@ export const magicVars: Record<string, string> = {
 
   // Presence cursor stroke
   "--cursor-stroke": "#2c1810",
+
+  // Board canvas
+  "--board-bg": "#f5f0e6",
+  "--board-grid-color": "rgba(139, 90, 43, 0.1)",
+
+  // Chat panel
+  "--chat-panel-bg": "linear-gradient(180deg, rgba(44, 24, 16, 0.95) 0%, rgba(26, 15, 10, 0.98) 100%)",
+  "--chat-panel-border": "rgba(139, 90, 43, 0.3)",
+  "--chat-header-border": "rgba(139, 90, 43, 0.3)",
+  "--chat-accent": "#fbbf24",
+  "--chat-accent-bg": "rgba(139, 90, 43, 0.4)",
+  "--chat-accent-border": "rgba(139, 90, 43, 0.4)",
+  "--chat-user-bg": "rgba(139, 90, 43, 0.2)",
+  "--chat-user-border": "rgba(139, 90, 43, 0.15)",
+  "--chat-user-text": "#d4a574",
+  "--chat-assistant-bg": "rgba(251, 191, 36, 0.08)",
+  "--chat-assistant-border": "rgba(251, 191, 36, 0.06)",
+  "--chat-assistant-text": "#d4a574",
+  "--chat-system-bg": "rgba(139, 90, 43, 0.15)",
+  "--chat-system-text": "rgba(139, 90, 43, 0.7)",
+  "--chat-input-bg": "rgba(255, 255, 255, 0.04)",
+  "--chat-input-border": "rgba(139, 90, 43, 0.3)",
+  "--chat-heading": "#fbbf24",
+  "--chat-hint": "rgba(139, 90, 43, 0.5)",
+  "--chat-dot": "rgba(251, 191, 36, 0.7)",
+  "--chat-fab-bg": "linear-gradient(135deg, rgba(139, 90, 43, 0.5), rgba(251, 191, 36, 0.3), rgba(120, 80, 30, 0.3))",
+  "--chat-fab-border": "rgba(139, 90, 43, 0.4)",
+  "--chat-fab-color": "#fbbf24",
 };
 
 /* ─── Magic Mode copy swaps ──────────────────────────────────────────────── */
 export const magicCopy: Record<string, string> = {
   "Collaborative Chaos": "The Wizarding Workspace",
+  "Where ideas collide and great things happen": "Where Broomsticks Collide and Mischief Happens",
   "A shared canvas for sticky notes and shapes.": "A shared canvas for spells and enchantments.",
   "My Boards": "The Great Hall",
   "← My Boards": "← The Great Hall",

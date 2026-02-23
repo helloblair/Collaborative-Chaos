@@ -5,13 +5,14 @@ import { getBoard, joinBoard } from "@/lib/boards";
 import type { Board, BoardItem, Connector } from "@/types/board";
 import { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { useRouter, useSearchParams } from "next/navigation";
-import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
+import { addDoc, collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { onDisconnect, onValue, ref, remove, serverTimestamp as rtdbServerTimestamp, set, update } from "firebase/database";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { BoardCanvas } from "./BoardCanvas";
 import SortingHatPanel from "@/components/SortingHatPanel";
+import FootprintTrail from "@/components/FootprintTrail";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -29,7 +30,17 @@ import {
   Copy,
   Share2,
   LogOut,
+  Undo2,
 } from "lucide-react";
+
+// ── Undo types ──────────────────────────────────────────────────────────────
+type UndoEntry =
+  | { type: "create-items"; ids: string[] }
+  | { type: "delete-items"; items: Array<{ id: string; data: Record<string, unknown> }>; connectors?: Array<{ id: string; data: Record<string, unknown> }> }
+  | { type: "move-items"; moves: Array<{ id: string; prevX: number; prevY: number }> }
+  | { type: "update-field"; id: string; prev: Record<string, unknown> }
+  | { type: "create-connector"; id: string }
+  | { type: "delete-connector"; data: Record<string, unknown>; id: string };
 
 const STICKY_SIZE = 160;
 const RECT_WIDTH = 200;
@@ -93,12 +104,15 @@ function pickColor(seed: string) {
 
 export default function BoardClient({ boardId }: { boardId: string }) {
   const { mode, t } = useTheme();
-  const cursorStrokeColor = mode === "aurora" ? "#0f0a1a" : "#2c1810";
+  const cursorStrokeColor = mode === "aurora" ? "#143454" : "#2c1810";
+  const boardBg = mode === "aurora" ? "#f5f5f5" : "#f5f0e6";
+  const gridColor = mode === "aurora" ? "#f3f4f6" : "rgba(139, 90, 43, 0.1)";
   const router = useRouter();
   const searchParams = useSearchParams();
   const showDebug = searchParams.get("debug") === "1";
   const isInviteLink = searchParams.get("invite") === "true";
   const [uid, setUid] = useState<string | null | undefined>(undefined);
+  const [userName, setUserName] = useState<string>("Anonymous");
   const [boardAccess, setBoardAccess] = useState<"loading" | "ok" | "not-found" | "forbidden">("loading");
   const [boardMeta, setBoardMeta] = useState<Board | null>(null);
   const [joiningBoard, setJoiningBoard] = useState(false);
@@ -133,6 +147,16 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   // AI animation state (used by Sorting Hat handler + BoardCanvas)
   const [aiCreatedIds, setAiCreatedIds] = useState<string[]>([]);
   const [centerOnIds, setCenterOnIds] = useState<string[]>([]);
+
+  // Undo stack
+  const undoStackRef = useRef<UndoEntry[]>([]);
+  const [undoStackSize, setUndoStackSize] = useState(0);
+  const pushUndo = useCallback((entry: UndoEntry) => {
+    undoStackRef.current.push(entry);
+    // Cap at 50 entries
+    if (undoStackRef.current.length > 50) undoStackRef.current.shift();
+    setUndoStackSize(undoStackRef.current.length);
+  }, []);
 
   // Sorting Hat chat panel state
   const [hatPanelOpen, setHatPanelOpen] = useState(false);
@@ -169,6 +193,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUid(u?.uid ?? null);
+      setUserName(u?.displayName || "Anonymous");
     });
     return unsub;
   }, []);
@@ -347,7 +372,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     const spawnY = Math.round(viewportSize.height / 2 - RECT_HEIGHT / 2);
     try {
       const itemsRef = collection(db, "boards", boardId, "items");
-      await addDoc(itemsRef, {
+      const docRef = await addDoc(itemsRef, {
         type: "rect",
         x: spawnX,
         y: spawnY,
@@ -357,13 +382,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         createdBy: uid,
         updatedAt: serverTimestamp(),
       });
+      pushUndo({ type: "create-items", ids: [docRef.id] });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create rectangle";
       setCreateError(msg);
     } finally {
       setIsCreating(false);
     }
-  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+  }, [boardId, uid, viewportSize.width, viewportSize.height, pushUndo]);
 
   // Circle creation
   const handleAddCircle = useCallback(async () => {
@@ -374,7 +400,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     const spawnY = Math.round(viewportSize.height / 2 - CIRCLE_SIZE / 2);
     try {
       const itemsRef = collection(db, "boards", boardId, "items");
-      await addDoc(itemsRef, {
+      const docRef = await addDoc(itemsRef, {
         type: "circle",
         x: spawnX,
         y: spawnY,
@@ -384,13 +410,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         createdBy: uid,
         updatedAt: serverTimestamp(),
       });
+      pushUndo({ type: "create-items", ids: [docRef.id] });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create circle";
       setCreateError(msg);
     } finally {
       setIsCreating(false);
     }
-  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+  }, [boardId, uid, viewportSize.width, viewportSize.height, pushUndo]);
 
   // Line creation
   const handleAddLine = useCallback(async () => {
@@ -401,7 +428,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     const spawnY = Math.round(viewportSize.height / 2);
     try {
       const itemsRef = collection(db, "boards", boardId, "items");
-      await addDoc(itemsRef, {
+      const docRef = await addDoc(itemsRef, {
         type: "line",
         x: spawnX,
         y: spawnY,
@@ -411,13 +438,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         createdBy: uid,
         updatedAt: serverTimestamp(),
       });
+      pushUndo({ type: "create-items", ids: [docRef.id] });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create line";
       setCreateError(msg);
     } finally {
       setIsCreating(false);
     }
-  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+  }, [boardId, uid, viewportSize.width, viewportSize.height, pushUndo]);
 
   // Heart creation
   const handleAddHeart = useCallback(async () => {
@@ -428,7 +456,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     const spawnY = Math.round(viewportSize.height / 2 - HEART_SIZE / 2);
     try {
       const itemsRef = collection(db, "boards", boardId, "items");
-      await addDoc(itemsRef, {
+      const docRef = await addDoc(itemsRef, {
         type: "heart",
         x: spawnX,
         y: spawnY,
@@ -438,13 +466,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         createdBy: uid,
         updatedAt: serverTimestamp(),
       });
+      pushUndo({ type: "create-items", ids: [docRef.id] });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create heart";
       setCreateError(msg);
     } finally {
       setIsCreating(false);
     }
-  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+  }, [boardId, uid, viewportSize.width, viewportSize.height, pushUndo]);
 
   // B) Reliable sticky creation with try/catch and feedback
   const handleAddSticky = useCallback(async () => {
@@ -471,7 +500,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
     try {
       const itemsRef = collection(db, "boards", boardId, "items");
-      await addDoc(itemsRef, {
+      const docRef = await addDoc(itemsRef, {
         type: "sticky",
         x: spawnX,
         y: spawnY,
@@ -479,6 +508,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         createdBy: uid,
         updatedAt: serverTimestamp(),
       });
+      pushUndo({ type: "create-items", ids: [docRef.id] });
       setLastBoardClick(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create sticky";
@@ -486,7 +516,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     } finally {
       setIsCreating(false);
     }
-  }, [boardId, uid, lastBoardClick]);
+  }, [boardId, uid, lastBoardClick, pushUndo]);
 
   // Board background click → store position for next spawn (not on sticky or HUD)
   const handleBoardClick = useCallback((e: React.MouseEvent<HTMLElement>) => {
@@ -572,6 +602,11 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const handleItemsMove = useCallback(
     async (moves: Array<{ id: string; x: number; y: number }>) => {
       if (moves.length === 0) return;
+      // Snapshot previous positions for undo
+      const prevMoves = moves.map((m) => {
+        const item = boardItemsRef.current[m.id];
+        return { id: m.id, prevX: item?.x ?? m.x, prevY: item?.y ?? m.y };
+      });
       try {
         const batch = writeBatch(db);
         for (const move of moves) {
@@ -579,20 +614,29 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           batch.update(itemRef, { x: move.x, y: move.y, updatedAt: serverTimestamp() });
         }
         await batch.commit();
+        pushUndo({ type: "move-items", moves: prevMoves });
       } catch {
         // Firestore sync will reconcile
       }
     },
-    [boardId]
+    [boardId, pushUndo]
   );
 
   // Delete all selected items with connector cascade
   const handleDeleteItems = useCallback(async () => {
     if (selectedIds.length === 0) return;
+    // Snapshot data for undo before deleting
+    const deletedItems: Array<{ id: string; data: Record<string, unknown> }> = [];
+    const deletedConnectors: Array<{ id: string; data: Record<string, unknown> }> = [];
     try {
       const batch = writeBatch(db);
       const connectorIdsToDelete = new Set<string>();
       for (const id of selectedIds) {
+        const item = boardItems[id];
+        if (item) {
+          const { id: _id, ...rest } = item;
+          deletedItems.push({ id, data: { ...rest, updatedAt: serverTimestamp() } });
+        }
         batch.delete(doc(collection(db, "boards", boardId, "items"), id));
         for (const conn of Object.values(connectors)) {
           if (conn.fromId === id || conn.toId === id) {
@@ -601,14 +645,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         }
       }
       for (const connId of connectorIdsToDelete) {
+        const conn = connectors[connId];
+        if (conn) {
+          deletedConnectors.push({ id: connId, data: { fromId: conn.fromId, toId: conn.toId, style: conn.style, color: conn.color, createdBy: conn.createdBy, createdAt: conn.createdAt ?? serverTimestamp() } });
+        }
         batch.delete(doc(collection(db, "boards", boardId, "connectors"), connId));
       }
       await batch.commit();
+      pushUndo({ type: "delete-items", items: deletedItems, connectors: deletedConnectors.length > 0 ? deletedConnectors : undefined });
       setSelectedIds([]);
     } catch {
       // Firestore sync will reconcile
     }
-  }, [boardId, selectedIds, connectors]);
+  }, [boardId, selectedIds, connectors, boardItems, pushUndo]);
 
   // Build a Firestore-safe item payload (no id/updatedAt fields)
   const itemPayload = useCallback(
@@ -643,11 +692,12 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         newIds.push(newRef.id);
       }
       await batch.commit();
+      pushUndo({ type: "create-items", ids: newIds });
       setSelectedIds(newIds);
     } catch {
       // Firestore sync will reconcile
     }
-  }, [boardId, uid, selectedIds, boardItems, itemPayload]);
+  }, [boardId, uid, selectedIds, boardItems, itemPayload, pushUndo]);
 
   // Copy selected items to local clipboard; resets paste stagger
   const handleCopy = useCallback(() => {
@@ -686,33 +736,104 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         newIds.push(newRef.id);
       }
       await batch.commit();
+      pushUndo({ type: "create-items", ids: newIds });
       setSelectedIds(newIds);
       pasteOffsetCountRef.current = step + 1;
     } catch {
       // Firestore sync will reconcile
     }
-  }, [boardId, uid, clipboardItems, viewportSize, itemPayload]);
+  }, [boardId, uid, clipboardItems, viewportSize, itemPayload, pushUndo]);
 
   // Delete selected connector
   const handleDeleteConnector = useCallback(async () => {
     if (!selectedConnectorId) return;
+    const conn = connectors[selectedConnectorId];
     try {
       await deleteDoc(doc(collection(db, "boards", boardId, "connectors"), selectedConnectorId));
+      if (conn) {
+        pushUndo({ type: "delete-connector", id: selectedConnectorId, data: { fromId: conn.fromId, toId: conn.toId, style: conn.style, color: conn.color, createdBy: conn.createdBy } });
+      }
       setSelectedConnectorId(null);
     } catch {
       // Firestore sync will reconcile
     }
-  }, [boardId, selectedConnectorId]);
+  }, [boardId, selectedConnectorId, connectors, pushUndo]);
+
+  // ── Undo handler ────────────────────────────────────────────────────────────
+  const handleUndo = useCallback(async () => {
+    const entry = undoStackRef.current.pop();
+    if (!entry) return;
+    setUndoStackSize(undoStackRef.current.length);
+    try {
+      switch (entry.type) {
+        case "create-items": {
+          // Undo creation → delete the created items
+          const batch = writeBatch(db);
+          for (const id of entry.ids) {
+            batch.delete(doc(collection(db, "boards", boardId, "items"), id));
+          }
+          await batch.commit();
+          setSelectedIds([]);
+          break;
+        }
+        case "delete-items": {
+          // Undo deletion → re-create the deleted items + connectors
+          const batch = writeBatch(db);
+          for (const item of entry.items) {
+            batch.set(doc(collection(db, "boards", boardId, "items"), item.id), item.data);
+          }
+          if (entry.connectors) {
+            for (const conn of entry.connectors) {
+              batch.set(doc(collection(db, "boards", boardId, "connectors"), conn.id), conn.data);
+            }
+          }
+          await batch.commit();
+          break;
+        }
+        case "move-items": {
+          // Undo move → restore previous positions
+          const batch = writeBatch(db);
+          for (const m of entry.moves) {
+            batch.update(doc(collection(db, "boards", boardId, "items"), m.id), { x: m.prevX, y: m.prevY, updatedAt: serverTimestamp() });
+          }
+          await batch.commit();
+          break;
+        }
+        case "update-field": {
+          // Undo field change → restore previous field values
+          const itemRef = doc(collection(db, "boards", boardId, "items"), entry.id);
+          await updateDoc(itemRef, { ...entry.prev, updatedAt: serverTimestamp() });
+          break;
+        }
+        case "create-connector": {
+          // Undo connector creation → delete it
+          await deleteDoc(doc(collection(db, "boards", boardId, "connectors"), entry.id));
+          setSelectedConnectorId(null);
+          break;
+        }
+        case "delete-connector": {
+          // Undo connector deletion → re-create it
+          const connRef = doc(collection(db, "boards", boardId, "connectors"), entry.id);
+          await setDoc(connRef, entry.data);
+          break;
+        }
+      }
+    } catch (err) {
+      console.error("[undo] failed:", err);
+    }
+  }, [boardId]);
 
   const handleColorChange = useCallback(async (color: string) => {
     if (!selectedId) return;
+    const prevFill = boardItems[selectedId]?.fill;
     try {
       const itemRef = doc(collection(db, "boards", boardId, "items"), selectedId);
       await updateDoc(itemRef, { fill: color, updatedAt: serverTimestamp() });
+      pushUndo({ type: "update-field", id: selectedId, prev: { fill: prevFill } });
     } catch {
       // Firestore sync will reconcile
     }
-  }, [boardId, selectedId]);
+  }, [boardId, selectedId, boardItems, pushUndo]);
 
   const handleCreateFrame = useCallback(
     async (x: number, y: number, w: number, h: number) => {
@@ -730,6 +851,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           createdBy: uid,
           updatedAt: serverTimestamp(),
         });
+        pushUndo({ type: "create-items", ids: [docRef.id] });
         setActiveTool("select");
         setPendingFrameTitleId(docRef.id);
       } catch (err) {
@@ -737,7 +859,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         setCreateError(msg);
       }
     },
-    [boardId, uid]
+    [boardId, uid, pushUndo]
   );
 
   const handleAddText = useCallback(async () => {
@@ -759,6 +881,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         createdBy: uid,
         updatedAt: serverTimestamp(),
       });
+      pushUndo({ type: "create-items", ids: [docRef.id] });
       setPendingTextEditId(docRef.id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to create text";
@@ -766,32 +889,39 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     } finally {
       setIsCreating(false);
     }
-  }, [boardId, uid, viewportSize.width, viewportSize.height]);
+  }, [boardId, uid, viewportSize.width, viewportSize.height, pushUndo]);
 
   const handleFontSizeChange = useCallback(async (size: number) => {
     if (!selectedId) return;
+    const prevSize = boardItems[selectedId]?.fontSize;
     try {
       const itemRef = doc(collection(db, "boards", boardId, "items"), selectedId);
       await updateDoc(itemRef, { fontSize: size, updatedAt: serverTimestamp() });
+      pushUndo({ type: "update-field", id: selectedId, prev: { fontSize: prevSize } });
     } catch {
       // Firestore sync will reconcile
     }
-  }, [boardId, selectedId]);
+  }, [boardId, selectedId, boardItems, pushUndo]);
 
   const handleFrameTitleCommit = useCallback(
     async (id: string, title: string) => {
+      const prevTitle = boardItemsRef.current[id]?.title;
       try {
         const itemRef = doc(collection(db, "boards", boardId, "items"), id);
         await updateDoc(itemRef, { title, updatedAt: serverTimestamp() });
+        if (prevTitle !== title) {
+          pushUndo({ type: "update-field", id, prev: { title: prevTitle } });
+        }
       } catch {
         // Firestore sync will reconcile
       }
     },
-    [boardId]
+    [boardId, pushUndo]
   );
 
   const handleFrameTransform = useCallback(
     async (id: string, x: number, y: number, width: number, height: number, rotation: number) => {
+      const prev = boardItemsRef.current[id];
       try {
         const itemRef = doc(collection(db, "boards", boardId, "items"), id);
         await updateDoc(itemRef, {
@@ -802,11 +932,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           rotation,
           updatedAt: serverTimestamp(),
         });
+        if (prev) {
+          pushUndo({ type: "update-field", id, prev: { x: prev.x, y: prev.y, width: prev.width, height: prev.height, rotation: prev.rotation } });
+        }
       } catch {
         // Firestore sync will reconcile
       }
     },
-    [boardId]
+    [boardId, pushUndo]
   );
 
   const handleSignOut = useCallback(async () => {
@@ -931,15 +1064,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
 
   const handleTextCommit = useCallback(
     async (id: string, nextText: string) => {
+      const prevText = boardItemsRef.current[id]?.text;
       try {
         const itemsRef = collection(db, "boards", boardId, "items");
         const itemRef = doc(itemsRef, id);
         await updateDoc(itemRef, { text: nextText, updatedAt: serverTimestamp() });
+        if (prevText !== nextText) {
+          pushUndo({ type: "update-field", id, prev: { text: prevText } });
+        }
       } catch {
         // Revert will happen via Firestore sync
       }
     },
-    [boardId]
+    [boardId, pushUndo]
   );
 
   const itemsArray = useMemo(() => Object.values(boardItems), [boardItems]);
@@ -960,7 +1097,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       } else {
         // Create connector between source and target
         try {
-          await addDoc(collection(db, "boards", boardId, "connectors"), {
+          const connRef = await addDoc(collection(db, "boards", boardId, "connectors"), {
             fromId: connectSourceId,
             toId: id,
             style: "arrow",
@@ -968,13 +1105,14 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             createdBy: uid,
             createdAt: serverTimestamp(),
           });
+          pushUndo({ type: "create-connector", id: connRef.id });
         } catch (err) {
           console.error("[board] failed to create connector:", err);
         }
         setConnectSourceId(null);
       }
     },
-    [activeTool, connectSourceId, boardId, uid]
+    [activeTool, connectSourceId, boardId, uid, pushUndo]
   );
 
   // Handle connector selection
@@ -1176,6 +1314,12 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         return;
       }
 
+      if (mod && e.key === "z") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
       if (mod && e.key === "d") {
         e.preventDefault();
         handleDuplicate();
@@ -1221,7 +1365,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedIds, selectedConnectorId, activeTool, boardAccess, handleDeleteItems, handleDeleteConnector, handleDuplicate, handleCopy, handlePaste]);
+  }, [selectedIds, selectedConnectorId, activeTool, boardAccess, handleDeleteItems, handleDeleteConnector, handleDuplicate, handleCopy, handlePaste, handleUndo]);
 
   // E) Sort items so active/dragged renders on top; stable sort by activeItemId
   const sortedItems = useMemo(() => {
@@ -1234,6 +1378,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   }, [boardItems, activeItemId]);
 
   // Unique online users by uid (one entry per user; name/color from most recently active session)
+  // Includes the current user as first entry with isMe flag
+  const IDLE_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes
   const uniqueOnlineUsers = useMemo(() => {
     if (!presenceMap || typeof uid !== "string") return [];
     const byUid = new Map<
@@ -1243,28 +1389,47 @@ export default function BoardClient({ boardId }: { boardId: string }) {
     for (const [key, p] of Object.entries(presenceMap)) {
       if (!isPresenceActive(p)) continue;
       const entryUid = key.split("-")[0];
-      if (entryUid === uid) continue;
       const list = byUid.get(entryUid) ?? [];
       list.push({ key, p });
       byUid.set(entryUid, list);
     }
-    const result: Array<{ uid: string; name: string; color: string }> = [];
     const lastActiveTime = (x: unknown): number =>
       typeof x === "number" && !Number.isNaN(x) ? x : 0;
+    const result: Array<{ uid: string; name: string; color: string; isMe: boolean; isIdle: boolean }> = [];
     byUid.forEach((sessions, entryUid) => {
       const sorted = [...sessions].sort(
         (a, b) =>
           lastActiveTime(b.p.lastActive) - lastActiveTime(a.p.lastActive)
       );
       const chosen = sorted[0];
+      const lastTime = lastActiveTime(chosen.p.lastActive);
+      const isIdle = lastTime > 0 && Date.now() - lastTime > IDLE_THRESHOLD_MS;
       result.push({
         uid: entryUid,
         name: chosen.p.name || "Anonymous",
         color: chosen.p.color,
+        isMe: entryUid === uid,
+        isIdle,
       });
     });
+    // If the current user has no presence entry yet, add them
+    if (!result.some((u) => u.isMe)) {
+      result.push({
+        uid,
+        name: userName,
+        color: pickColor(uid),
+        isMe: true,
+        isIdle: false,
+      });
+    }
+    // Sort: current user first, then others alphabetically
+    result.sort((a, b) => {
+      if (a.isMe) return -1;
+      if (b.isMe) return 1;
+      return a.name.localeCompare(b.name);
+    });
     return result;
-  }, [presenceMap, uid]);
+  }, [presenceMap, uid, userName]);
   const canvasWidth = Math.max(0, viewportSize.width - SIDEBAR_WIDTH);
   const selectedItem = selectedId ? boardItems[selectedId] : null;
   const selectedItemFill = selectedItem?.fill ?? (
@@ -1286,9 +1451,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       style={{ background: "var(--surface-bg)", color: "var(--text-primary)" }}
       onClick={handleBoardClick}
     >
-      <ThemeToggle />
+      <ThemeToggle chatOpen={hatPanelOpen} />
       {/* Left sidebar */}
-      <aside className="fixed left-0 top-0 h-screen w-48 z-40 flex flex-col p-3 gap-1.5" style={{ background: "var(--surface-panel)", borderRight: "1px solid var(--surface-panel-border)" }}>
+      <aside className="fixed left-0 top-0 h-screen w-48 z-40 flex flex-col pt-6 pb-6 px-3 gap-4 overflow-y-auto" style={{ background: "var(--surface-panel)", borderRight: "1px solid var(--surface-panel-border)" }}>
         <Link
           href="/"
           className="btn-secondary w-full rounded-lg px-3 py-2 font-medium text-sm text-left"
@@ -1296,7 +1461,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           {t("← My Boards")}
         </Link>
         {boardMeta && (
-          <p className="px-1 text-xs font-semibold truncate" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }} title={boardMeta.name}>
+          <p className="px-1 text-xl font-bold truncate" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }} title={boardMeta.name}>
             {boardMeta.name}
           </p>
         )}
@@ -1453,6 +1618,19 @@ export default function BoardClient({ boardId }: { boardId: string }) {
               </button>
             </div>
 
+            {/* ── Undo button ── */}
+            <button
+              type="button"
+              onClick={handleUndo}
+              disabled={undoStackSize === 0}
+              className="toolbar-btn w-full flex items-center justify-center rounded-lg p-2 border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ background: "var(--accent-secondary-bg)", borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+              aria-label="Undo"
+            >
+              <Undo2 size={18} />
+              <span className="toolbar-tooltip">{`${t("Undo")} (${navigator.platform?.includes("Mac") ? "⌘" : "Ctrl+"}Z)`}</span>
+            </button>
+
             {/* ── Selection controls ── */}
             {hasSelection && activeTool === "select" && (
               <>
@@ -1564,25 +1742,45 @@ export default function BoardClient({ boardId }: { boardId: string }) {
               </>
             )}
 
-            <div className="px-1">
-              <p className="text-xs font-medium mb-1" style={{ color: "var(--text-secondary)" }}>
+            <div
+              className="rounded-xl p-3"
+              style={{
+                background: "var(--accent-secondary-bg)",
+                border: "1px solid var(--border-subtle)",
+              }}
+            >
+              <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-heading)" }}>
                 {t("Online")} ({uniqueOnlineUsers.length})
               </p>
-              <ul className="text-xs space-y-0.5" style={{ color: "var(--text-secondary)" }}>
+              <ul className="text-xs space-y-1">
                 {uniqueOnlineUsers.map((u) => (
-                  <li key={u.uid} className="truncate" title={u.name}>
-                    {u.name}
+                  <li
+                    key={u.uid}
+                    className="truncate flex items-center gap-1.5"
+                    title={u.isMe ? `${u.name} (You)` : u.name}
+                    style={{
+                      color: u.isIdle ? "var(--text-muted)" : "var(--text-secondary)",
+                      fontStyle: u.isIdle ? "italic" : "normal",
+                    }}
+                  >
+                    <span
+                      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ background: u.isIdle ? "var(--text-muted)" : u.color }}
+                    />
+                    <span className="truncate">
+                      {u.name}
+                      {u.isMe && (
+                        <span className="font-normal" style={{ color: "var(--text-muted)" }}> (You)</span>
+                      )}
+                    </span>
                   </li>
                 ))}
-                {uniqueOnlineUsers.length === 0 && (
-                  <li style={{ color: "var(--text-muted)" }}>{t("No one else online")}</li>
-                )}
               </ul>
             </div>
           </>
         )}
 
-        <div className="mt-auto flex flex-col gap-1.5">
+        <div className="mt-auto flex flex-col gap-2 pt-4" style={{ borderTop: "1px solid var(--border-subtle)" }}>
           {uid && boardAccess === "ok" && (
             <>
               <div className="flex gap-1">
@@ -1613,7 +1811,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       </aside>
 
       {/* Canvas fills viewport to the right of the sidebar */}
-      <div className="absolute top-0 left-48 right-0 bottom-0 z-0">
+      <div className="absolute top-0 left-48 right-0 bottom-0 z-0" style={{ backgroundColor: boardBg }}>
         {canvasWidth > 0 && viewportSize.height > 0 && (
           <BoardCanvas
             width={canvasWidth}
@@ -1646,8 +1844,11 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             centerOnIds={centerOnIds}
             onCenterComplete={() => setCenterOnIds([])}
             cursorStrokeColor={cursorStrokeColor}
+            boardBg={boardBg}
+            gridColor={gridColor}
           />
         )}
+        <FootprintTrail active={mode === "magic"} />
       </div>
 
       {uid === undefined && (

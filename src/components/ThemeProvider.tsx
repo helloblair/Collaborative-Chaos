@@ -33,7 +33,12 @@ export function useTheme() {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>("aurora");
+  const [mode, setMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "aurora";
+    const stored = localStorage.getItem("collabchaos-theme");
+    if (stored === "aurora" || stored === "magic") return stored;
+    return "aurora";
+  });
   const transitioning = useRef(false);
 
   // Apply CSS variables whenever mode changes
@@ -44,6 +49,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       root.style.setProperty(key, value);
     }
     root.setAttribute("data-theme", mode);
+    localStorage.setItem("collabchaos-theme", mode);
   }, [mode]);
 
   const toggleTheme = useCallback(
