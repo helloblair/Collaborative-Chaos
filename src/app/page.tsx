@@ -239,7 +239,7 @@ function ProductMockup() {
         </div>
 
         {/* Canvas area */}
-        <div className="relative" style={{ background: "#f5f5f5", height: "340px" }}>
+        <div className="relative" style={{ background: "#f5f5f5", height: "clamp(200px, 38vh, 340px)" }}>
           {/* Grid dots */}
           <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -455,202 +455,56 @@ function RevealSection({ children, className = "", delay = 0 }: { children: Reac
 function LandingPage({ onLogin }: { onLogin: () => void }) {
   const { t } = useTheme();
 
-  const features = [
-    {
-      icon: <CollabIcon />,
-      title: "Real-Time Collaboration",
-      desc: "Work together on the same board simultaneously. See live cursors, watch changes appear instantly, and never miss a beat.",
-      primary: true,
-    },
-    {
-      icon: <ShapesIcon />,
-      title: "Shape & Drawing Tools",
-      desc: "Sticky notes, rectangles, circles, connectors, frames, and more. Build anything from architecture diagrams to mood boards.",
-      primary: true,
-    },
-    {
-      icon: <AIIcon />,
-      title: "Built-In AI Assistant",
-      desc: "Generate SWOT analyses, brainstorm ideas, create templates, and arrange layouts — all with a simple chat command.",
-      primary: true,
-    },
-    {
-      icon: <SyncIcon />,
-      title: "Instant Sync",
-      desc: "Every stroke, every sticky, every move syncs across all collaborators in real time. No refresh needed.",
-    },
-    {
-      icon: <TemplatesIcon />,
-      title: "Smart Templates",
-      desc: "Kick off projects with pre-built templates for retros, journey maps, and strategic planning.",
-    },
-    {
-      icon: <ShareIcon />,
-      title: "Easy Sharing",
-      desc: "Share a link and your team is on the board. No sign-up walls or complicated permissions.",
-    },
-  ];
-
   return (
-    <main className="min-h-screen overflow-x-hidden">
+    <main className="fixed inset-0 overflow-hidden flex flex-col">
       <ThemeToggle />
 
-      {/* ═══ HERO ═══════════════════════════════════════════════════════════ */}
-      <section className="relative px-6 pt-20 pb-24 sm:pt-28 sm:pb-32 lg:pt-36 lg:pb-40">
-        <div className="max-w-5xl mx-auto text-center">
-          {/* Brand */}
+      {/* Single-screen layout */}
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-6 min-h-0">
+        <div className="w-full max-w-4xl flex flex-col items-center text-center gap-4 min-h-0">
+          {/* Tagline */}
           <RevealSection>
-            <p className="text-sm font-semibold tracking-widest uppercase mb-4" style={{ color: "var(--text-accent)" }}>
-              {t("Collaborative Chaos")}
+            <p className="text-xs sm:text-sm font-semibold tracking-widest uppercase" style={{ color: "var(--text-accent)" }}>
+              {t("Where ideas collide and great things happen")}
             </p>
           </RevealSection>
 
-          {/* Headline options — pick your favorite: */}
-          {/* Option A: "Think together. Build together." */}
-          {/* Option B: "Where ideas collide and great things happen." */}
-          {/* Option C: "Your team's visual playground." */}
+          {/* Product name */}
           <RevealSection delay={1}>
             <h1
-              className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6"
+              className="text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight"
               style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}
             >
-              Where ideas collide and<br className="hidden sm:block" /> great things happen
+              {t("Collaborative Chaos")}
             </h1>
           </RevealSection>
 
-          <RevealSection delay={2}>
-            <p className="text-base sm:text-lg max-w-2xl mx-auto mb-10 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-              A collaborative whiteboard where your whole team can brainstorm, diagram, and plan in real time — with an AI assistant built right in.
-            </p>
+          {/* Product mockup — fills available space */}
+          <RevealSection delay={2} className="w-full flex-1 min-h-0 flex items-center">
+            <div className="w-full">
+              <ProductMockup />
+            </div>
           </RevealSection>
 
+          {/* Description + CTA */}
           <RevealSection delay={3}>
+            <p className="text-sm sm:text-base max-w-xl mx-auto mb-4 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              A collaborative whiteboard where your whole team can brainstorm, diagram, and plan in real time — with an AI assistant built right in.
+            </p>
             <button
               type="button"
               onClick={onLogin}
-              className="btn-primary rounded-xl px-8 py-4 text-base font-semibold active:scale-95 transition-all"
-              style={{ fontSize: "1rem" }}
+              className="btn-primary rounded-xl px-8 py-3 sm:py-4 text-sm sm:text-base font-semibold active:scale-95 transition-all"
             >
               Start Building — It&apos;s Free
             </button>
           </RevealSection>
-
-          {/* Product mockup */}
-          <RevealSection delay={3} className="mt-16 sm:mt-20">
-            <ProductMockup />
-          </RevealSection>
         </div>
-      </section>
+      </div>
 
-      {/* ═══ FEATURES ══════════════════════════════════════════════════════ */}
-      <section className="px-6 py-24 sm:py-32">
-        <div className="max-w-5xl mx-auto">
-          <RevealSection className="text-center mb-16">
-            <h2
-              className="text-3xl sm:text-4xl font-bold tracking-tight mb-4"
-              style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}
-            >
-              Everything you need to think visually
-            </h2>
-            <p className="text-base max-w-xl mx-auto" style={{ color: "var(--text-secondary)" }}>
-              Powerful tools that stay out of your way until you need them.
-            </p>
-          </RevealSection>
-
-          {/* Primary features — large cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            {features.filter(f => f.primary).map((f, i) => (
-              <RevealSection key={f.title} delay={(i + 1) as 1 | 2 | 3}>
-                <div
-                  className="feature-card rounded-xl p-6 h-full"
-                  style={{
-                    background: "var(--glass-bg)",
-                    backdropFilter: "blur(var(--blur-glass))",
-                    WebkitBackdropFilter: "blur(var(--blur-glass))",
-                    border: "1px solid var(--glass-border)",
-                    boxShadow: "var(--glass-shadow)",
-                  }}
-                >
-                  <div className="mb-4 w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: "var(--accent-secondary-bg)" }}>
-                    {f.icon}
-                  </div>
-                  <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>
-                    {f.title}
-                  </h3>
-                  <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
-                    {f.desc}
-                  </p>
-                </div>
-              </RevealSection>
-            ))}
-          </div>
-
-          {/* Secondary features — smaller cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {features.filter(f => !f.primary).map((f, i) => (
-              <RevealSection key={f.title} delay={(i + 1) as 1 | 2 | 3}>
-                <div
-                  className="feature-card rounded-xl p-5 h-full flex gap-4 items-start"
-                  style={{
-                    background: "var(--glass-bg)",
-                    backdropFilter: "blur(var(--blur-glass))",
-                    WebkitBackdropFilter: "blur(var(--blur-glass))",
-                    border: "1px solid var(--border-subtle)",
-                  }}
-                >
-                  <div className="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "var(--accent-secondary-bg)" }}>
-                    {f.icon}
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>
-                      {f.title}
-                    </h3>
-                    <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-                      {f.desc}
-                    </p>
-                  </div>
-                </div>
-              </RevealSection>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ═══ CTA ════════════════════════════════════════════════════════════ */}
-      <section className="relative px-6 py-24 sm:py-32">
-        {/* Background grid texture */}
-        <div className="cta-grid-bg absolute inset-0 pointer-events-none" aria-hidden="true" />
-
-        <div className="relative max-w-2xl mx-auto text-center">
-          <RevealSection>
-            <h2
-              className="text-3xl sm:text-4xl font-bold tracking-tight mb-4"
-              style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}
-            >
-              Your team&apos;s next great idea starts on a board
-            </h2>
-          </RevealSection>
-          <RevealSection delay={1}>
-            <p className="text-base mb-10" style={{ color: "var(--text-secondary)" }}>
-              Jump in, invite your team, and start building together. No credit card, no setup, no friction.
-            </p>
-          </RevealSection>
-          <RevealSection delay={2}>
-            <button
-              type="button"
-              onClick={onLogin}
-              className="btn-primary rounded-xl px-10 py-4 text-base font-semibold active:scale-95 transition-all"
-              style={{ fontSize: "1.05rem" }}
-            >
-              Create Your First Board
-            </button>
-          </RevealSection>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="px-6 py-8 text-center">
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+      {/* Footer pinned to bottom */}
+      <footer className="px-6 py-3 text-center shrink-0">
+        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
           Built with chaos, shipped with love.
         </span>
       </footer>
