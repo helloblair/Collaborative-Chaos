@@ -2,63 +2,66 @@
 
 export type ThemeMode = "aurora" | "magic";
 
-/* ─── Aurora Theme: Mixed purple-to-blue gradient mesh, teal/cyan accents ─── */
+/* ─── Aurora Theme: Teal/cyan glassmorphism with aurora light streaks ──────── */
 export const auroraVars: Record<string, string> = {
   // Surfaces
-  "--surface-bg": "#0a0618",
+  "--surface-bg": "#0a2e2e",
   "--surface-bg-gradient":
-    "radial-gradient(ellipse at 20% 50%, rgba(88, 28, 135, 0.15) 0%, transparent 50%), " +
-    "radial-gradient(ellipse at 80% 20%, rgba(59, 130, 246, 0.12) 0%, transparent 50%), " +
-    "radial-gradient(ellipse at 50% 80%, rgba(236, 72, 153, 0.08) 0%, transparent 50%), " +
-    "radial-gradient(ellipse at 70% 60%, rgba(20, 184, 166, 0.06) 0%, transparent 40%), " +
-    "linear-gradient(180deg, #0f0a1a 0%, #0a0618 100%)",
-  "--surface-panel": "rgba(15, 10, 30, 0.75)",
-  "--surface-panel-border": "rgba(139, 92, 246, 0.15)",
-  "--surface-input": "rgba(15, 10, 30, 0.6)",
-  "--surface-input-border": "rgba(99, 102, 241, 0.3)",
-  "--surface-elevated": "rgba(15, 10, 30, 0.92)",
+    "radial-gradient(ellipse at 30% 20%, rgba(0, 201, 167, 0.18) 0%, transparent 50%), " +
+    "radial-gradient(ellipse at 70% 60%, rgba(77, 232, 192, 0.12) 0%, transparent 50%), " +
+    "radial-gradient(ellipse at 50% 80%, rgba(184, 169, 212, 0.08) 0%, transparent 50%), " +
+    "radial-gradient(ellipse at 20% 70%, rgba(0, 180, 160, 0.06) 0%, transparent 40%), " +
+    "linear-gradient(180deg, #0d3838 0%, #0a2e2e 100%)",
+  "--surface-panel": "rgba(10, 46, 46, 0.78)",
+  "--surface-panel-border": "rgba(77, 232, 192, 0.15)",
+  "--surface-input": "rgba(10, 46, 46, 0.6)",
+  "--surface-input-border": "rgba(77, 232, 192, 0.3)",
+  "--surface-elevated": "rgba(10, 46, 46, 0.92)",
 
   // Text
-  "--text-primary": "rgba(255, 255, 255, 0.88)",
-  "--text-secondary": "#c4b5fd",
-  "--text-muted": "rgba(139, 92, 246, 0.6)",
-  "--text-heading": "#e0e7ff",
-  "--text-accent": "#67e8f9",
+  "--text-primary": "rgba(255, 255, 255, 0.92)",
+  "--text-secondary": "#a8e6cf",
+  "--text-muted": "rgba(77, 232, 192, 0.5)",
+  "--text-heading": "#e0fff5",
+  "--text-accent": "#4de8c0",
   "--text-on-accent": "#ffffff",
 
   // Borders
-  "--border-default": "rgba(139, 92, 246, 0.2)",
-  "--border-subtle": "rgba(139, 92, 246, 0.1)",
-  "--border-focus": "#818cf8",
+  "--border-default": "rgba(77, 232, 192, 0.2)",
+  "--border-subtle": "rgba(77, 232, 192, 0.1)",
+  "--border-focus": "#4de8c0",
 
   // Accent / interactive
-  "--accent-primary": "#6366f1",
-  "--accent-primary-hover": "#818cf8",
-  "--accent-active-bg": "linear-gradient(135deg, #6366f1, #8b5cf6)",
-  "--accent-active-border": "#818cf8",
-  "--accent-secondary-bg": "rgba(99, 102, 241, 0.1)",
-  "--accent-secondary-hover": "rgba(99, 102, 241, 0.2)",
+  "--accent-primary": "rgba(77, 232, 192, 0.25)",
+  "--accent-primary-hover": "rgba(77, 232, 192, 0.35)",
+  "--accent-active-bg": "linear-gradient(135deg, rgba(0, 201, 167, 0.35), rgba(77, 232, 192, 0.25))",
+  "--accent-active-border": "#4de8c0",
+  "--accent-secondary-bg": "rgba(77, 232, 192, 0.08)",
+  "--accent-secondary-hover": "rgba(77, 232, 192, 0.16)",
   "--accent-danger-bg": "rgba(127, 29, 29, 0.25)",
   "--accent-danger-border": "rgba(239, 68, 68, 0.3)",
   "--accent-danger-text": "#fca5a5",
   "--accent-danger-hover-bg": "rgba(127, 29, 29, 0.4)",
 
   // Effects
-  "--glow-primary": "rgba(99, 102, 241, 0.3)",
-  "--glow-secondary": "rgba(139, 92, 246, 0.15)",
-  "--blur-glass": "12px",
-  "--shadow-card": "0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.04)",
+  "--glow-primary": "rgba(77, 232, 192, 0.3)",
+  "--glow-secondary": "rgba(184, 169, 212, 0.15)",
+  "--glow-teal": "rgba(77, 232, 192, 0.3)",
+  "--glow-lilac": "rgba(184, 169, 212, 0.3)",
+  "--blur-glass": "20px",
+  "--shadow-card": "0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06)",
   "--shadow-elevated": "0 4px 20px rgba(0, 0, 0, 0.3)",
 
   // Glass
-  "--glass-bg": "rgba(255, 255, 255, 0.04)",
-  "--glass-border": "rgba(255, 255, 255, 0.08)",
-  "--glass-shadow": "0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+  "--glass-bg": "rgba(255, 255, 255, 0.08)",
+  "--glass-bg-hover": "rgba(255, 255, 255, 0.14)",
+  "--glass-border": "rgba(255, 255, 255, 0.15)",
+  "--glass-shadow": "0 8px 32px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08)",
 
   // Tooltip
-  "--tooltip-bg": "rgba(10, 6, 24, 0.95)",
-  "--tooltip-text": "#e0e7ff",
-  "--tooltip-border": "rgba(99, 102, 241, 0.25)",
+  "--tooltip-bg": "rgba(10, 46, 46, 0.95)",
+  "--tooltip-text": "#e0fff5",
+  "--tooltip-border": "rgba(77, 232, 192, 0.25)",
 
   // Typography
   "--font-heading": "'Geist', ui-sans-serif, system-ui, sans-serif",
@@ -68,7 +71,35 @@ export const auroraVars: Record<string, string> = {
   "--transition-theme": "0.6s",
 
   // Presence cursor stroke
-  "--cursor-stroke": "#0f0a1a",
+  "--cursor-stroke": "#0a2e2e",
+
+  // Board canvas
+  "--board-bg": "#f5f5f5",
+  "--board-grid-color": "#f3f4f6",
+
+  // Chat panel
+  "--chat-panel-bg": "linear-gradient(180deg, rgba(10, 46, 46, 0.95) 0%, rgba(8, 36, 36, 0.98) 100%)",
+  "--chat-panel-border": "rgba(77, 232, 192, 0.15)",
+  "--chat-header-border": "rgba(77, 232, 192, 0.15)",
+  "--chat-accent": "#4de8c0",
+  "--chat-accent-bg": "rgba(0, 201, 167, 0.4)",
+  "--chat-accent-border": "rgba(77, 232, 192, 0.3)",
+  "--chat-user-bg": "rgba(77, 232, 192, 0.15)",
+  "--chat-user-border": "rgba(77, 232, 192, 0.1)",
+  "--chat-user-text": "#e0fff5",
+  "--chat-assistant-bg": "rgba(184, 169, 212, 0.12)",
+  "--chat-assistant-border": "rgba(184, 169, 212, 0.08)",
+  "--chat-assistant-text": "rgba(255, 255, 255, 0.85)",
+  "--chat-system-bg": "rgba(77, 232, 192, 0.1)",
+  "--chat-system-text": "rgba(77, 232, 192, 0.7)",
+  "--chat-input-bg": "rgba(255, 255, 255, 0.06)",
+  "--chat-input-border": "rgba(77, 232, 192, 0.15)",
+  "--chat-heading": "#e0fff5",
+  "--chat-hint": "rgba(77, 232, 192, 0.35)",
+  "--chat-dot": "rgba(77, 232, 192, 0.7)",
+  "--chat-fab-bg": "linear-gradient(135deg, rgba(0, 201, 167, 0.5), rgba(77, 232, 192, 0.3), rgba(184, 169, 212, 0.3))",
+  "--chat-fab-border": "rgba(77, 232, 192, 0.3)",
+  "--chat-fab-color": "#e0fff5",
 };
 
 /* ─── Magic Theme: Harry Potter — parchment, burgundy, gold ──────────────── */
@@ -118,8 +149,12 @@ export const magicVars: Record<string, string> = {
   "--shadow-card": "0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.02)",
   "--shadow-elevated": "0 4px 20px rgba(0, 0, 0, 0.4)",
 
+  "--glow-teal": "rgba(251, 191, 36, 0.2)",
+  "--glow-lilac": "rgba(139, 90, 43, 0.15)",
+
   // Glass (parchment-style)
   "--glass-bg": "rgba(62, 39, 24, 0.6)",
+  "--glass-bg-hover": "rgba(62, 39, 24, 0.75)",
   "--glass-border": "rgba(139, 90, 43, 0.25)",
   "--glass-shadow": "0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.03)",
 
@@ -137,6 +172,34 @@ export const magicVars: Record<string, string> = {
 
   // Presence cursor stroke
   "--cursor-stroke": "#2c1810",
+
+  // Board canvas
+  "--board-bg": "#f5f0e6",
+  "--board-grid-color": "rgba(139, 90, 43, 0.1)",
+
+  // Chat panel
+  "--chat-panel-bg": "linear-gradient(180deg, rgba(44, 24, 16, 0.95) 0%, rgba(26, 15, 10, 0.98) 100%)",
+  "--chat-panel-border": "rgba(139, 90, 43, 0.3)",
+  "--chat-header-border": "rgba(139, 90, 43, 0.3)",
+  "--chat-accent": "#fbbf24",
+  "--chat-accent-bg": "rgba(139, 90, 43, 0.4)",
+  "--chat-accent-border": "rgba(139, 90, 43, 0.4)",
+  "--chat-user-bg": "rgba(139, 90, 43, 0.2)",
+  "--chat-user-border": "rgba(139, 90, 43, 0.15)",
+  "--chat-user-text": "#d4a574",
+  "--chat-assistant-bg": "rgba(251, 191, 36, 0.08)",
+  "--chat-assistant-border": "rgba(251, 191, 36, 0.06)",
+  "--chat-assistant-text": "#d4a574",
+  "--chat-system-bg": "rgba(139, 90, 43, 0.15)",
+  "--chat-system-text": "rgba(139, 90, 43, 0.7)",
+  "--chat-input-bg": "rgba(255, 255, 255, 0.04)",
+  "--chat-input-border": "rgba(139, 90, 43, 0.3)",
+  "--chat-heading": "#fbbf24",
+  "--chat-hint": "rgba(139, 90, 43, 0.5)",
+  "--chat-dot": "rgba(251, 191, 36, 0.7)",
+  "--chat-fab-bg": "linear-gradient(135deg, rgba(139, 90, 43, 0.5), rgba(251, 191, 36, 0.3), rgba(120, 80, 30, 0.3))",
+  "--chat-fab-border": "rgba(139, 90, 43, 0.4)",
+  "--chat-fab-color": "#fbbf24",
 };
 
 /* ─── Magic Mode copy swaps ──────────────────────────────────────────────── */

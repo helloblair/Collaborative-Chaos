@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Wand2, X } from "lucide-react";
+import { Bot, Send, Wand2, X } from "lucide-react";
+import { useTheme } from "./ThemeProvider";
 
 // ─── Sorting Hat SVG icon ─────────────────────────────────────────────────────
-function HatIcon({ size = 24, className = "" }: { size?: number; className?: string }) {
+function HatIcon({ size = 24, className = "", style }: { size?: number; className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       width={size}
@@ -12,6 +13,7 @@ function HatIcon({ size = 24, className = "" }: { size?: number; className?: str
       viewBox="0 0 64 64"
       fill="none"
       className={className}
+      style={style}
       xmlns="http://www.w3.org/2000/svg"
     >
       {/* Hat body - pointed wizard hat silhouette */}
@@ -57,6 +59,9 @@ type Props = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Props) {
+  const { mode } = useTheme();
+  const isAurora = mode === "aurora";
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -119,7 +124,7 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
       const createdCount = createdIds.length;
       const toolActions = results.filter((r) => r.tool && r.tool !== "getBoardState");
       if (toolActions.length > 0) {
-        const actionSummary = summarizeActions(toolActions, createdCount);
+        const actionSummary = summarizeActions(toolActions, createdCount, isAurora);
         if (actionSummary) {
           newMessages.push({ id: nextId(), role: "revelio", content: actionSummary });
         }
@@ -129,27 +134,26 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
       if (reply) {
         newMessages.push({ id: nextId(), role: "assistant", content: reply });
       } else {
-        // Fallback if no text reply (shouldn't happen with updated prompt)
         newMessages.push({
           id: nextId(),
           role: "assistant",
           content: createdCount > 0
-            ? "It is done."
-            : "I have heeded your request.",
+            ? (isAurora ? "Done." : "It is done.")
+            : (isAurora ? "Got it." : "I have heeded your request."),
         });
       }
 
       setMessages((prev) => [...prev, ...newMessages]);
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "The magic faltered...";
+      const errMsg = err instanceof Error ? err.message : (isAurora ? "Something went wrong." : "The magic faltered...");
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "assistant", content: `Alas... ${errMsg}` },
+        { id: nextId(), role: "assistant", content: isAurora ? errMsg : `Alas... ${errMsg}` },
       ]);
     } finally {
       setIsThinking(false);
     }
-  }, [input, isThinking, messages, nextId, getHistory, onSendCommand]);
+  }, [input, isThinking, messages, nextId, getHistory, onSendCommand, isAurora]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -167,27 +171,48 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
       <button
         type="button"
         onClick={onToggle}
-        className="hat-fab fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-amber-700 via-amber-600 to-purple-800 text-amber-200 flex items-center justify-center transition-transform hover:scale-110 active:scale-95"
-        aria-label="Open Sorting Hat"
+        className="hat-fab fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center transition-transform hover:scale-110 active:scale-95"
+        style={{
+          background: "var(--chat-fab-bg)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          border: "1px solid var(--chat-fab-border)",
+          color: "var(--chat-fab-color)",
+        }}
+        aria-label={isAurora ? "Open AI Assistant" : "Open Sorting Hat"}
       >
-        <HatIcon size={30} />
+        {isAurora ? <Bot size={28} /> : <HatIcon size={30} />}
       </button>
     );
   }
 
   // ─── Chat Panel ────────────────────────────────────────────────────────────
   return (
-    <div className="chat-panel-enter fixed top-0 right-0 bottom-0 w-[340px] z-50 flex flex-col shadow-2xl"
-      style={{ background: "linear-gradient(180deg, #1a1033 0%, #0f0d1a 100%)" }}
+    <div className="chat-panel-enter fixed top-0 right-0 bottom-0 w-[340px] z-50 flex flex-col"
+      style={{
+        background: "var(--chat-panel-bg)",
+        backdropFilter: "blur(24px)",
+        WebkitBackdropFilter: "blur(24px)",
+        borderLeft: "1px solid var(--chat-panel-border)",
+        boxShadow: "0 0 40px rgba(0, 0, 0, 0.4)",
+      }}
     >
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-purple-900/50">
-        <HatIcon size={24} className="text-amber-400 shrink-0" />
-        <h2 className="text-sm font-semibold text-amber-200 flex-1">The Sorting Hat</h2>
+      <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: "1px solid var(--chat-header-border)" }}>
+        {isAurora
+          ? <Bot size={22} className="shrink-0" style={{ color: "var(--chat-accent)" }} />
+          : <HatIcon size={24} className="shrink-0" style={{ color: "var(--chat-accent)" }} />
+        }
+        <h2 className="text-sm font-semibold flex-1" style={{ color: "var(--chat-heading)" }}>
+          {isAurora ? "AI Assistant" : "The Sorting Hat"}
+        </h2>
         <button
           type="button"
           onClick={onToggle}
-          className="p-1 rounded-md text-purple-400 hover:text-purple-200 hover:bg-purple-900/40 transition-colors"
+          className="p-1 rounded-md transition-colors"
+          style={{ color: "var(--text-muted)" }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = "var(--chat-accent)"; e.currentTarget.style.background = "var(--accent-secondary-bg)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; e.currentTarget.style.background = "transparent"; }}
           aria-label="Close chat panel"
         >
           <X size={18} />
@@ -200,7 +225,7 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
           if (msg.role === "system-note") {
             return (
               <div key={msg.id} className="text-center">
-                <span className="inline-block text-[11px] text-amber-400/70 bg-amber-900/20 rounded-full px-3 py-1">
+                <span className="inline-block text-[11px] rounded-full px-3 py-1" style={{ color: "var(--chat-system-text)", background: "var(--chat-system-bg)" }}>
                   {msg.content}
                 </span>
               </div>
@@ -208,22 +233,24 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
           }
           if (msg.role === "revelio") {
             return (
-              <div key={msg.id} className="revelio-container text-center py-2">
-                {/* Sparkle cloud */}
-                <div className="revelio-burst relative inline-block">
-                  <span className="revelio-sparkle revelio-sparkle-1" />
-                  <span className="revelio-sparkle revelio-sparkle-2" />
-                  <span className="revelio-sparkle revelio-sparkle-3" />
-                  <span className="revelio-sparkle revelio-sparkle-4" />
-                  <span className="revelio-sparkle revelio-sparkle-5" />
-                  <span className="revelio-sparkle revelio-sparkle-6" />
-                  <span className="revelio-text font-bold text-sm tracking-wider">
-                    Revelio!
-                  </span>
-                </div>
-                {/* Summary line below */}
-                <div className="revelio-summary mt-1.5">
-                  <span className="inline-block text-[11px] text-amber-400/70 bg-amber-900/20 rounded-full px-3 py-1">
+              <div key={msg.id} className={isAurora ? "text-center py-2" : "revelio-container text-center py-2"}>
+                {isAurora ? (
+                  <span className="inline-block text-sm font-medium" style={{ color: "var(--chat-accent)" }}>Done</span>
+                ) : (
+                  <div className="revelio-burst relative inline-block">
+                    <span className="revelio-sparkle revelio-sparkle-1" />
+                    <span className="revelio-sparkle revelio-sparkle-2" />
+                    <span className="revelio-sparkle revelio-sparkle-3" />
+                    <span className="revelio-sparkle revelio-sparkle-4" />
+                    <span className="revelio-sparkle revelio-sparkle-5" />
+                    <span className="revelio-sparkle revelio-sparkle-6" />
+                    <span className="revelio-text font-bold text-sm tracking-wider">
+                      Revelio!
+                    </span>
+                  </div>
+                )}
+                <div className={isAurora ? "mt-1.5" : "revelio-summary mt-1.5"}>
+                  <span className="inline-block text-[11px] rounded-full px-3 py-1" style={{ color: "var(--chat-system-text)", background: "var(--chat-system-bg)" }}>
                     {msg.content}
                   </span>
                 </div>
@@ -233,17 +260,22 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
           if (msg.role === "user") {
             return (
               <div key={msg.id} className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-br-sm px-3.5 py-2 text-sm bg-purple-700/50 text-purple-100 whitespace-pre-wrap break-words">
+                <div className="max-w-[85%] rounded-2xl rounded-br-sm px-3.5 py-2 text-sm whitespace-pre-wrap break-words" style={{ background: "var(--chat-user-bg)", color: "var(--chat-user-text)", border: "1px solid var(--chat-user-border)" }}>
                   {msg.content}
                 </div>
               </div>
             );
           }
-          // assistant
+          // assistant — welcome message has mode-dependent text
+          const displayContent = msg.id === "welcome"
+            ? (isAurora
+              ? "Hello! I'm your AI assistant. I can help organize this canvas \u2014 create sticky notes, shapes, templates, and more. What would you like me to do?"
+              : msg.content)
+            : msg.content;
           return (
             <div key={msg.id} className="flex justify-start">
-              <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3.5 py-2 text-sm bg-amber-900/30 text-amber-100/90 whitespace-pre-wrap break-words" style={{ fontStyle: "italic" }}>
-                {msg.content}
+              <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-3.5 py-2 text-sm whitespace-pre-wrap break-words" style={{ background: "var(--chat-assistant-bg)", color: "var(--chat-assistant-text)", fontStyle: isAurora ? "normal" : "italic", border: "1px solid var(--chat-assistant-border)" }}>
+                {displayContent}
               </div>
             </div>
           );
@@ -252,11 +284,13 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
         {/* Typing indicator */}
         {isThinking && (
           <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-sm px-4 py-2.5 bg-amber-900/30 flex items-center gap-1">
-              <span className="text-xs text-amber-300/70 italic mr-1.5">The hat is thinking</span>
-              <span className="hat-dot-1 w-1.5 h-1.5 rounded-full bg-amber-400/70" />
-              <span className="hat-dot-2 w-1.5 h-1.5 rounded-full bg-amber-400/70" />
-              <span className="hat-dot-3 w-1.5 h-1.5 rounded-full bg-amber-400/70" />
+            <div className="rounded-2xl rounded-bl-sm px-4 py-2.5 flex items-center gap-1" style={{ background: "var(--chat-assistant-bg)", border: "1px solid var(--chat-assistant-border)" }}>
+              <span className="text-xs italic mr-1.5" style={{ color: "var(--chat-system-text)" }}>
+                {isAurora ? "Thinking" : "The hat is thinking"}
+              </span>
+              <span className="hat-dot-1 w-1.5 h-1.5 rounded-full" style={{ background: "var(--chat-dot)" }} />
+              <span className="hat-dot-2 w-1.5 h-1.5 rounded-full" style={{ background: "var(--chat-dot)" }} />
+              <span className="hat-dot-3 w-1.5 h-1.5 rounded-full" style={{ background: "var(--chat-dot)" }} />
             </div>
           </div>
         )}
@@ -264,29 +298,30 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
 
       {/* Input area */}
       <div className="px-3 pb-3 pt-1">
-        <div className="flex items-end gap-2 bg-purple-950/60 border border-purple-800/50 rounded-xl px-3 py-2">
+        <div className="flex items-end gap-2 rounded-xl px-3 py-2" style={{ background: "var(--chat-input-bg)", border: "1px solid var(--chat-input-border)" }}>
           <textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Speak to the hat..."
+            placeholder={isAurora ? "Ask the AI..." : "Speak to the hat..."}
             rows={1}
-            className="flex-1 bg-transparent outline-none text-sm text-purple-100 placeholder:text-purple-500 resize-none max-h-24"
+            className="flex-1 bg-transparent outline-none text-sm resize-none max-h-24"
+            style={{ color: "var(--chat-heading)", lineHeight: "1.4" }}
             disabled={isThinking}
-            style={{ lineHeight: "1.4" }}
           />
           <button
             type="button"
             onClick={handleSend}
             disabled={!input.trim() || isThinking}
-            className="shrink-0 p-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-30 disabled:cursor-not-allowed text-white transition-colors"
+            className="shrink-0 p-1.5 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed text-white transition-all"
+            style={{ background: "var(--chat-accent-bg)", border: "1px solid var(--chat-accent-border)" }}
             aria-label="Send message"
           >
-            <Wand2 size={16} />
+            {isAurora ? <Send size={16} /> : <Wand2 size={16} />}
           </button>
         </div>
-        <p className="text-[10px] text-purple-600 mt-1.5 text-center">
+        <p className="text-[10px] mt-1.5 text-center" style={{ color: "var(--chat-hint)" }}>
           Enter to send · Shift+Enter for newline
         </p>
       </div>
@@ -298,7 +333,8 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
 
 function summarizeActions(
   actions: Array<{ tool: string; id?: string; [k: string]: unknown }>,
-  createdCount: number
+  createdCount: number,
+  isAurora: boolean
 ): string {
   const toolCounts: Record<string, number> = {};
   for (const a of actions) {
@@ -309,7 +345,7 @@ function summarizeActions(
     ([name, count]) => (count > 1 ? `${count} ${name}s` : `${count} ${name}`)
   );
   if (parts.length === 0) return "";
-  return `✨ ${parts.join(", ")} conjured`;
+  return isAurora ? `${parts.join(", ")} created` : `\u2728 ${parts.join(", ")} conjured`;
 }
 
 function friendlyToolName(tool: string): string {
