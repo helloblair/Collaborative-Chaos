@@ -15,6 +15,7 @@ import SortingHatPanel from "@/components/SortingHatPanel";
 import FootprintTrail from "@/components/FootprintTrail";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { getItemBounds, rectContains } from "@/lib/layoutEngine";
 import {
   MousePointer2,
   Hand,
@@ -41,6 +42,16 @@ type UndoEntry =
   | { type: "update-field"; id: string; prev: Record<string, unknown> }
   | { type: "create-connector"; id: string }
   | { type: "delete-connector"; data: Record<string, unknown>; id: string };
+
+/** Find all items geometrically contained within a frame's bounds. */
+function getFrameChildIds(frameId: string, items: BoardItem[]): string[] {
+  const frame = items.find(i => i.id === frameId);
+  if (!frame || frame.type !== "frame") return [];
+  const frameBounds = getItemBounds(frame);
+  return items
+    .filter(i => i.id !== frameId && rectContains(frameBounds, getItemBounds(i)))
+    .map(i => i.id);
+}
 
 const STICKY_SIZE = 160;
 const RECT_WIDTH = 200;
@@ -582,10 +593,18 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
 
   // Select handler: shift+click toggles; plain click single-selects
+  // Clicking a frame auto-selects all geometrically contained children
   const handleSelect = useCallback((id: string, shiftKey?: boolean) => {
     setSelectedIds((prev) => {
       if (shiftKey) {
         return prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id];
+      }
+      // For frames: also select all children inside the frame
+      const item = boardItemsRef.current[id];
+      if (item?.type === "frame") {
+        const allItems = Object.values(boardItemsRef.current);
+        const childIds = getFrameChildIds(id, allItems);
+        return [id, ...childIds];
       }
       return [id];
     });
@@ -1039,6 +1058,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
           viewportObjects,
           viewportBounds,
           conversationHistory: history,
+          selectedIds,
         }),
       });
 
@@ -1059,7 +1079,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         results: data.results ?? [],
       };
     },
-    [uid, boardId, serializeViewport]
+    [uid, boardId, serializeViewport, selectedIds]
   );
 
   const handleTextCommit = useCallback(

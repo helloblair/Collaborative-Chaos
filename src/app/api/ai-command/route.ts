@@ -10,7 +10,13 @@ import {
   computeJourneyMapLayout,
   computeRetroLayout,
   computeContainerChildLayout,
+  getItemBounds,
+  rectsIntersect,
+  rectContains,
+  findNonOverlappingPosition,
+  findNonOverlappingPositionInFrame,
   type BoardObjectMap,
+  type Rect,
 } from "@/lib/layoutEngine";
 
 // ---------------------------------------------------------------------------
@@ -19,7 +25,7 @@ import {
 
 interface ViewportBounds { x: number; y: number; width: number; height: number; }
 interface ChatMessage { role: "user" | "assistant"; content: string; }
-interface AiCommandRequest { command: string; boardId: string; viewportObjects: BoardItem[]; viewportBounds: ViewportBounds; conversationHistory?: ChatMessage[]; }
+interface AiCommandRequest { command: string; boardId: string; viewportObjects: BoardItem[]; viewportBounds: ViewportBounds; conversationHistory?: ChatMessage[]; selectedIds?: string[]; }
 interface ActionResult { tool: string; id?: string; [key: string]: unknown; }
 
 // ---------------------------------------------------------------------------
@@ -279,17 +285,50 @@ function createStickiesInFrame(
 }
 
 // ---------------------------------------------------------------------------
-// Synchronous tool executor
+// Board state cache for collision detection
 // ---------------------------------------------------------------------------
 
-function executeTool(
+class BoardStateCache {
+  private items: BoardItem[] | null = null;
+
+  constructor(
+    private projectId: string,
+    private idToken: string,
+    private itemsPath: string,
+  ) {}
+
+  async getItems(): Promise<BoardItem[]> {
+    if (this.items === null) {
+      const docs = await firestoreList(this.projectId, this.idToken, this.itemsPath);
+      this.items = docs as unknown as BoardItem[];
+    }
+    return this.items;
+  }
+
+  addItem(item: BoardItem): void {
+    if (this.items) this.items.push(item);
+  }
+
+  updatePosition(id: string, x: number, y: number): void {
+    if (!this.items) return;
+    const item = this.items.find(i => i.id === id);
+    if (item) { item.x = x; item.y = y; }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tool executor (with collision avoidance)
+// ---------------------------------------------------------------------------
+
+async function executeTool(
   toolName: string,
   input: Record<string, unknown>,
   boardId: string,
   uid: string,
   writer: RestBatchWriter,
-  vb: ViewportBounds
-): { toolResult: unknown; action: ActionResult } {
+  vb: ViewportBounds,
+  boardState: BoardStateCache,
+): Promise<{ toolResult: unknown; action: ActionResult }> {
   const at = new Date().toISOString();
   const defaultX = vb.x + vb.width / 2 - 100;
   const defaultY = vb.y + vb.height / 2 - 100;
@@ -299,50 +338,82 @@ function executeTool(
   switch (toolName) {
     case "createStickyNote": {
       const id = nanoid();
+      const w = 140, h = 140;
+      let x = (input.x as number) ?? defaultX;
+      let y = (input.y as number) ?? defaultY;
+      const fill = STICKY_COLORS[(input.color as string) || "yellow"] ?? STICKY_COLORS.yellow;
+
+      const allItems = await boardState.getItems();
+      const occupiedRects = allItems.map(i => getItemBounds(i));
+      const desired: Rect = { x, y, w, h };
+
+      // If position is inside a frame, constrain within it
+      const containingFrame = allItems.find(
+        i => i.type === "frame" && rectContains(getItemBounds(i), desired)
+      );
+      if (containingFrame) {
+        const frameRect = getItemBounds(containingFrame);
+        const childRects = allItems
+          .filter(i => i.id !== containingFrame.id && rectContains(frameRect, getItemBounds(i)))
+          .map(i => getItemBounds(i));
+        const pos = findNonOverlappingPositionInFrame(desired, childRects, frameRect);
+        x = pos.x; y = pos.y;
+      } else {
+        const pos = findNonOverlappingPosition(desired, occupiedRects);
+        x = pos.x; y = pos.y;
+      }
+
+      boardState.addItem({ id, type: "sticky", x, y, width: w, height: h, text: input.text as string, fill, createdBy: uid });
       writer.set(itemsPath, id, {
-        type: "sticky",
-        text: input.text as string,
-        fill: STICKY_COLORS[(input.color as string) || "yellow"] ?? STICKY_COLORS.yellow,
-        x: (input.x as number) ?? defaultX,
-        y: (input.y as number) ?? defaultY,
-        width: 140, height: 140, createdBy: uid, updatedAt: at,
+        type: "sticky", text: input.text as string, fill,
+        x, y, width: w, height: h, createdBy: uid, updatedAt: at,
       });
-      return { toolResult: { success: true, id }, action: { tool: "createStickyNote", id } };
+      return { toolResult: { success: true, id, x, y }, action: { tool: "createStickyNote", id } };
     }
     case "createShape": {
       const id = nanoid();
       const shapeTypeMap: Record<string, BoardItem["type"]> = {
-        rectangle: "rect",
-        circle: "circle",
-        line: "line",
-        heart: "heart",
+        rectangle: "rect", circle: "circle", line: "line", heart: "heart",
       };
       const mappedType = shapeTypeMap[(input.type as string) || "rectangle"] ?? "rect";
       const defaultWidth = mappedType === "circle" ? 150 : mappedType === "heart" ? 120 : mappedType === "line" ? 200 : 150;
       const defaultHeight = mappedType === "circle" ? 150 : mappedType === "heart" ? 120 : mappedType === "line" ? 0 : 100;
       const defaultFill = mappedType === "heart" ? "#FFD7D7" : mappedType === "line" ? "#374151" : "#94A3B8";
+      const w = (input.width as number) ?? defaultWidth;
+      const h = (input.height as number) ?? defaultHeight;
+      let x = (input.x as number) ?? defaultX;
+      let y = (input.y as number) ?? defaultY;
+
+      const allItems = await boardState.getItems();
+      const occupiedRects = allItems.map(i => getItemBounds(i));
+      const pos = findNonOverlappingPosition({ x, y, w, h }, occupiedRects);
+      x = pos.x; y = pos.y;
+
+      boardState.addItem({ id, type: mappedType, x, y, width: w, height: h, fill: (input.color as string) || defaultFill, createdBy: uid });
       writer.set(itemsPath, id, {
-        type: mappedType,
-        fill: (input.color as string) || defaultFill,
-        x: (input.x as number) ?? defaultX,
-        y: (input.y as number) ?? defaultY,
-        width: (input.width as number) ?? defaultWidth,
-        height: (input.height as number) ?? defaultHeight,
-        createdBy: uid, updatedAt: at,
+        type: mappedType, fill: (input.color as string) || defaultFill,
+        x, y, width: w, height: h, createdBy: uid, updatedAt: at,
       });
-      return { toolResult: { success: true, id }, action: { tool: "createShape", id, shapeType: input.type } };
+      return { toolResult: { success: true, id, x, y }, action: { tool: "createShape", id, shapeType: input.type } };
     }
     case "createFrame": {
       const id = nanoid();
+      const w = (input.width as number) ?? 400;
+      const h = (input.height as number) ?? 300;
+      let x = (input.x as number) ?? defaultX;
+      let y = (input.y as number) ?? defaultY;
+
+      const allItems = await boardState.getItems();
+      const occupiedRects = allItems.map(i => getItemBounds(i));
+      const pos = findNonOverlappingPosition({ x, y, w, h }, occupiedRects);
+      x = pos.x; y = pos.y;
+
+      boardState.addItem({ id, type: "frame", x, y, width: w, height: h, title: input.title as string, createdBy: uid });
       writer.set(itemsPath, id, {
         type: "frame", title: input.title as string,
-        x: (input.x as number) ?? defaultX,
-        y: (input.y as number) ?? defaultY,
-        width: (input.width as number) ?? 400,
-        height: (input.height as number) ?? 300,
-        createdBy: uid, updatedAt: at,
+        x, y, width: w, height: h, createdBy: uid, updatedAt: at,
       });
-      return { toolResult: { success: true, id }, action: { tool: "createFrame", id, title: input.title } };
+      return { toolResult: { success: true, id, x, y }, action: { tool: "createFrame", id, title: input.title } };
     }
     case "createConnector": {
       const id = nanoid();
@@ -353,9 +424,27 @@ function executeTool(
       });
       return { toolResult: { success: true, id }, action: { tool: "createConnector", id } };
     }
-    case "moveObject":
-      writer.update(itemsPath, input.objectId as string, { x: input.x, y: input.y, updatedAt: at });
-      return { toolResult: { success: true }, action: { tool: "moveObject", objectId: input.objectId } };
+    case "moveObject": {
+      const objectId = input.objectId as string;
+      let x = input.x as number;
+      let y = input.y as number;
+
+      const allItems = await boardState.getItems();
+      const movingItem = allItems.find(i => i.id === objectId);
+      if (movingItem) {
+        const w = movingItem.width ?? 200;
+        const h = movingItem.height ?? 160;
+        const occupiedRects = allItems
+          .filter(i => i.id !== objectId)
+          .map(i => getItemBounds(i));
+        const pos = findNonOverlappingPosition({ x, y, w, h }, occupiedRects);
+        x = pos.x; y = pos.y;
+        boardState.updatePosition(objectId, x, y);
+      }
+
+      writer.update(itemsPath, objectId, { x, y, updatedAt: at });
+      return { toolResult: { success: true, x, y }, action: { tool: "moveObject", objectId } };
+    }
     case "changeColor":
       writer.update(itemsPath, input.objectId as string, { fill: input.color, updatedAt: at });
       return { toolResult: { success: true }, action: { tool: "changeColor", objectId: input.objectId } };
@@ -371,6 +460,29 @@ function executeTool(
         action: { tool: toolName, error: "unknown tool" },
       };
   }
+}
+
+/**
+ * Offset a template layout so its bounding box doesn't overlap existing items.
+ * Returns {dx, dy} delta to apply to all template element positions.
+ */
+async function adjustTemplatePosition(
+  frames: Array<{ x: number; y: number; width: number; height: number }>,
+  boardState: BoardStateCache,
+): Promise<{ dx: number; dy: number }> {
+  const allItems = await boardState.getItems();
+  if (allItems.length === 0) return { dx: 0, dy: 0 };
+
+  const minX = Math.min(...frames.map(f => f.x));
+  const minY = Math.min(...frames.map(f => f.y));
+  const maxX = Math.max(...frames.map(f => f.x + f.width));
+  const maxY = Math.max(...frames.map(f => f.y + f.height));
+  const bbox: Rect = { x: minX - 40, y: minY - 40, w: (maxX - minX) + 80, h: (maxY - minY) + 80 };
+
+  const occupiedRects = allItems.map(i => getItemBounds(i));
+  const adjusted = findNonOverlappingPosition(bbox, occupiedRects, { gap: 40 });
+
+  return { dx: adjusted.x - bbox.x, dy: adjusted.y - bbox.y };
 }
 
 // ---------------------------------------------------------------------------
@@ -455,11 +567,22 @@ export async function POST(req: NextRequest) {
         ? `\nActive space reservations (avoid placing objects here):\n${JSON.stringify(activeReservations)}`
         : "";
 
+    // Detect if a selected item is a frame
+    const selectedFrameInfo = (() => {
+      if (!body.selectedIds?.length) return "";
+      const selectedFrame = viewportObjects.find(
+        (o: BoardItem) => body.selectedIds!.includes(o.id) && o.type === "frame"
+      );
+      if (!selectedFrame) return "";
+      return `\nSelected frame: id=${selectedFrame.id}, title="${selectedFrame.title ?? ""}", bounds={x:${selectedFrame.x}, y:${selectedFrame.y}, w:${selectedFrame.width ?? 400}, h:${selectedFrame.height ?? 300}}. Place new items INSIDE this frame.`;
+    })();
+
     const userContent = [
       `Viewport: x=${vb.x}, y=${vb.y}, width=${vb.width}, height=${vb.height}`,
       `Objects visible in viewport (${viewportObjects.length}):`,
       JSON.stringify(viewportObjects),
       reservationNote,
+      selectedFrameInfo,
       `\nCommand: ${command}`,
     ].join("\n");
 
@@ -468,14 +591,20 @@ export async function POST(req: NextRequest) {
     ];
 
     // Include recent conversation history for multi-turn chat context.
-    // Limit to last 4 messages to prevent prior tool-heavy exchanges from
-    // confusing the model on subsequent requests (BUG: repeated SWOT analyses
-    // rendered empty because the model saw a complete prior SWOT in history
-    // and skipped creating sticky notes).
+    // Limit to last 4 messages. Truncate assistant replies to reduce the
+    // "task already completed" signal that causes small models to skip
+    // content generation on repeat template requests.
     if (conversationHistory && conversationHistory.length > 0) {
       const recentHistory = conversationHistory.slice(-4);
       for (const msg of recentHistory) {
-        messages.push({ role: msg.role, content: msg.content });
+        if (msg.role === "assistant") {
+          const truncated = msg.content.length > 80
+            ? msg.content.slice(0, 80) + "..."
+            : msg.content;
+          messages.push({ role: msg.role, content: truncated });
+        } else {
+          messages.push({ role: msg.role, content: msg.content });
+        }
       }
     }
 
@@ -490,6 +619,7 @@ export async function POST(req: NextRequest) {
 
     // All Firestore writes go through the REST batch writer (user ID token, no admin credentials needed)
     const writer = new RestBatchWriter(PROJECT_ID, token);
+    const boardState = new BoardStateCache(PROJECT_ID, token, itemsPath);
 
     // 6. Agentic loop — up to 10 turns
     // First turn: force the model to call a tool (prevents it from just
@@ -524,7 +654,7 @@ export async function POST(req: NextRequest) {
         // ── getBoardState ───────────────────────────────────────────────────
         if (toolName === "getBoardState") {
           await writer.flush();
-          const items = await firestoreList(PROJECT_ID, token, itemsPath);
+          const items = await boardState.getItems();
           toolResultContent = JSON.stringify(items);
           results.push({ tool: "getBoardState", count: items.length });
 
@@ -548,12 +678,24 @@ export async function POST(req: NextRequest) {
 
         // ── createSWOTTemplate ──────────────────────────────────────────────
         } else if (toolName === "createSWOTTemplate") {
+          // Guard: topic-specific templates must include content
+          if (input.topic && !input.content) {
+            toolResultContent = JSON.stringify({
+              error: "Content is required when topic is specified. Call createSWOTTemplate again with the content parameter populated — provide 2-4 sticky note texts per quadrant (strengths, weaknesses, opportunities, threats).",
+            });
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: toolResultContent });
+            continue;
+          }
           usedTemplateTools = true;
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const topic = input.topic as string | null;
           const wrapperTitle = topic ? `SWOT Analysis — ${topic}` : "SWOT Analysis";
           const layout = computeSWOTLayout(centerX, centerY);
+          const { dx, dy } = await adjustTemplatePosition(layout.frames, boardState);
+          if (dx !== 0 || dy !== 0) {
+            for (const frame of layout.frames) { frame.x += dx; frame.y += dy; }
+          }
           const frameIds: string[] = [];
           const allStickyIds: string[] = [];
           const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
@@ -604,6 +746,14 @@ export async function POST(req: NextRequest) {
 
         // ── createJourneyMap ────────────────────────────────────────────────
         } else if (toolName === "createJourneyMap") {
+          // Guard: topic-specific templates must include content
+          if (input.topic && !input.stageContent) {
+            toolResultContent = JSON.stringify({
+              error: "stageContent is required when topic is specified. Call createJourneyMap again with the stageContent parameter populated — provide an array of {stickies: string[]} objects, one per stage.",
+            });
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: toolResultContent });
+            continue;
+          }
           usedTemplateTools = true;
           const stages = (input.stages as string[]) ?? ["Stage 1", "Stage 2", "Stage 3"];
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
@@ -611,6 +761,10 @@ export async function POST(req: NextRequest) {
           const topic = input.topic as string | null;
           const jmWrapperTitle = topic ? `User Journey Map — ${topic}` : "User Journey Map";
           const layout = computeJourneyMapLayout(stages, centerX, centerY);
+          const { dx: jmDx, dy: jmDy } = await adjustTemplatePosition(layout.frames, boardState);
+          if (jmDx !== 0 || jmDy !== 0) {
+            for (const frame of layout.frames) { frame.x += jmDx; frame.y += jmDy; }
+          }
           const frameIds: string[] = [];
           const allStickyIds: string[] = [];
           const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
@@ -662,12 +816,24 @@ export async function POST(req: NextRequest) {
 
         // ── createRetroTemplate ─────────────────────────────────────────────
         } else if (toolName === "createRetroTemplate") {
+          // Guard: topic-specific templates must include content
+          if (input.topic && !input.content) {
+            toolResultContent = JSON.stringify({
+              error: "Content is required when topic is specified. Call createRetroTemplate again with the content parameter populated — provide 2-4 sticky note texts per column (wentWell, didntGoWell, actionItems).",
+            });
+            messages.push({ role: "tool", tool_call_id: toolCall.id, content: toolResultContent });
+            continue;
+          }
           usedTemplateTools = true;
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
           const topic = input.topic as string | null;
           const retroWrapperTitle = topic ? `Retrospective — ${topic}` : "Retrospective";
           const layout = computeRetroLayout(centerX, centerY);
+          const { dx: retroDx, dy: retroDy } = await adjustTemplatePosition(layout.frames, boardState);
+          if (retroDx !== 0 || retroDy !== 0) {
+            for (const frame of layout.frames) { frame.x += retroDx; frame.y += retroDy; }
+          }
           const frameIds: string[] = [];
           const allStickyIds: string[] = [];
           const frameDetails: Array<{ id: string; title: string; x: number; y: number; width: number; height: number }> = [];
@@ -717,14 +883,16 @@ export async function POST(req: NextRequest) {
 
         // ── All other sync tools ────────────────────────────────────────────
         } else {
-          const { toolResult, action } = executeTool(toolName, input, boardId, uid, writer, vb);
+          const { toolResult, action } = await executeTool(toolName, input, boardId, uid, writer, vb, boardState);
           toolResultContent = JSON.stringify(toolResult);
           results.push(action);
 
           // Track standalone stickies for potential auto-wrapping
+          // Use returned x/y (may differ from input due to collision nudging)
           if (toolName === "createStickyNote" && action.id) {
-            const sx = (input.x as number) ?? (vb.x + vb.width / 2 - 100);
-            const sy = (input.y as number) ?? (vb.y + vb.height / 2 - 100);
+            const result = toolResult as { x?: number; y?: number };
+            const sx = result.x ?? (input.x as number) ?? (vb.x + vb.width / 2 - 100);
+            const sy = result.y ?? (input.y as number) ?? (vb.y + vb.height / 2 - 100);
             standaloneStickyIds.push(action.id);
             standaloneStickyPositions.push({ id: action.id, x: sx, y: sy, w: 140, h: 140 });
           }

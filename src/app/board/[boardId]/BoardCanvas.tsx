@@ -202,6 +202,19 @@ function rectsIntersect(
   );
 }
 
+/** Returns true if outer fully contains inner. */
+function rectContains(
+  outer: { x: number; y: number; w: number; h: number },
+  inner: { x: number; y: number; w: number; h: number },
+): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y + inner.h <= outer.y + outer.h
+  );
+}
+
 // ─── ConnectorLine sub-component ─────────────────────────────────────────────
 
 type ConnectorLineProps = {
@@ -1209,6 +1222,8 @@ export function BoardCanvas({
   onViewportChangeRef.current = onViewportChange;
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const stageScaleRef = useRef(stageScale);
   stageScaleRef.current = stageScale;
 
@@ -1414,9 +1429,36 @@ export function BoardCanvas({
   // Keep a ref for mouse-up intersection test (stable access in handlers)
   effectiveItemsByIdRef.current = effectiveItemsById;
 
-  // Called when an item's drag starts; sets up group drag state
+  // Called when an item's drag starts; sets up group drag state.
+  // Frames automatically include all geometrically contained children.
   const handleItemDragStart = useCallback((id: string, startX: number, startY: number) => {
     const currentSelectedIds = selectedIdsRef.current;
+    const currentItems = itemsRef.current;
+
+    // If dragging a frame, auto-include children in the group drag
+    const draggedItem = currentItems.find(i => i.id === id);
+    if (draggedItem?.type === "frame") {
+      const frameBounds = getItemBounds(draggedItem);
+      const childIds = currentItems
+        .filter(i => i.id !== id && rectContains(frameBounds, getItemBounds(i)))
+        .map(i => i.id);
+
+      if (childIds.length > 0) {
+        // Merge children with any other selected items (excluding frame & its children)
+        const extraSelected = currentSelectedIds.filter(
+          sid => sid !== id && !childIds.includes(sid)
+        );
+        const allOtherIds = [...childIds, ...extraSelected];
+        const others = allOtherIds.map((sid) => {
+          const node = itemNodesRef.current.get(sid);
+          return { id: sid, startX: node?.x() ?? 0, startY: node?.y() ?? 0 };
+        });
+        groupDragRef.current = { sourceId: id, sourceStartX: startX, sourceStartY: startY, others };
+        return;
+      }
+    }
+
+    // Existing logic: multi-select group drag
     if (currentSelectedIds.length > 1 && currentSelectedIds.includes(id)) {
       const others = currentSelectedIds
         .filter((sid) => sid !== id)

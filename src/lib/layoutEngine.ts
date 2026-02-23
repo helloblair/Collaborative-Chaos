@@ -2,12 +2,159 @@ import type { BoardItem } from "@/types/board";
 
 type Position = { x: number; y: number };
 export type BoardObjectMap = Map<string, BoardItem>;
+export type Rect = { x: number; y: number; w: number; h: number };
 
 function getItemSize(item: BoardItem): { w: number; h: number } {
   return {
     w: item.width ?? 200,
     h: item.height ?? (item.type === "sticky" ? 200 : item.type === "frame" ? 300 : item.type === "text" ? 40 : 120),
   };
+}
+
+/** Compute bounding rectangle for any BoardItem. Server-safe. */
+export function getItemBounds(item: BoardItem): Rect {
+  if (item.type === "line") {
+    const dw = item.width ?? 200;
+    const dh = item.height ?? 0;
+    return {
+      x: item.x + Math.min(0, dw),
+      y: item.y + Math.min(0, dh),
+      w: Math.abs(dw) || 10,
+      h: Math.abs(dh) || 10,
+    };
+  }
+  const size = getItemSize(item);
+  return { x: item.x, y: item.y, w: size.w, h: size.h };
+}
+
+/** AABB intersection test. `gap` adds minimum spacing buffer. */
+export function rectsIntersect(a: Rect, b: Rect, gap = 0): boolean {
+  return (
+    a.x < b.x + b.w + gap &&
+    a.x + a.w + gap > b.x &&
+    a.y < b.y + b.h + gap &&
+    a.y + a.h + gap > b.y
+  );
+}
+
+/** Returns true if outer fully contains inner. */
+export function rectContains(outer: Rect, inner: Rect): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y + inner.h <= outer.y + outer.h
+  );
+}
+
+// ─── Collision avoidance ────────────────────────────────────────────────────
+
+const PLACEMENT_GAP = 20;
+
+/** Compute dx/dy for a position along ring N of a rectangular spiral. */
+function spiralOffset(ring: number, index: number, step: number): { dx: number; dy: number } {
+  const side = 2 * ring;
+  const perimeter = 8 * ring;
+  const normalized = index % perimeter;
+
+  if (normalized < side) {
+    return { dx: (-ring + normalized) * step, dy: -ring * step };
+  }
+  if (normalized < 2 * side) {
+    return { dx: ring * step, dy: (-ring + (normalized - side)) * step };
+  }
+  if (normalized < 3 * side) {
+    return { dx: (ring - (normalized - 2 * side)) * step, dy: ring * step };
+  }
+  return { dx: -ring * step, dy: (ring - (normalized - 3 * side)) * step };
+}
+
+/**
+ * Find the nearest non-overlapping position using a spiral scan.
+ * Returns original position if already free.
+ */
+export function findNonOverlappingPosition(
+  desired: Rect,
+  occupied: Rect[],
+  options?: { gap?: number; maxRings?: number }
+): { x: number; y: number } {
+  const gap = options?.gap ?? PLACEMENT_GAP;
+  const maxRings = options?.maxRings ?? 200;
+
+  const candidate = { ...desired };
+  if (!occupied.some(o => rectsIntersect(candidate, o, gap))) {
+    return { x: desired.x, y: desired.y };
+  }
+
+  const step = 40;
+  for (let ring = 1; ring <= maxRings; ring++) {
+    for (let i = 0; i < 8 * ring; i++) {
+      const { dx, dy } = spiralOffset(ring, i, step);
+      candidate.x = desired.x + dx;
+      candidate.y = desired.y + dy;
+      if (!occupied.some(o => rectsIntersect(candidate, o, gap))) {
+        return { x: candidate.x, y: candidate.y };
+      }
+    }
+  }
+
+  return { x: desired.x + 600, y: desired.y };
+}
+
+/** Clamp a child rect so it fits inside a frame (with title bar padding). */
+export function clampInsideFrame(
+  child: Rect,
+  frame: Rect,
+  padding = { top: 50, right: 20, bottom: 20, left: 20 }
+): { x: number; y: number } {
+  const innerLeft = frame.x + padding.left;
+  const innerTop = frame.y + padding.top;
+  const innerRight = frame.x + frame.w - padding.right - child.w;
+  const innerBottom = frame.y + frame.h - padding.bottom - child.h;
+
+  return {
+    x: Math.max(innerLeft, Math.min(child.x, innerRight)),
+    y: Math.max(innerTop, Math.min(child.y, innerBottom)),
+  };
+}
+
+/**
+ * Find non-overlapping position constrained within a frame's interior.
+ * Uses grid scan within frame bounds.
+ */
+export function findNonOverlappingPositionInFrame(
+  desired: Rect,
+  occupied: Rect[],
+  frame: Rect,
+  options?: { gap?: number }
+): { x: number; y: number } {
+  const gap = options?.gap ?? 10;
+  const padding = { top: 50, right: 20, bottom: 20, left: 20 };
+  const innerLeft = frame.x + padding.left;
+  const innerTop = frame.y + padding.top;
+  const innerRight = frame.x + frame.w - padding.right;
+  const innerBottom = frame.y + frame.h - padding.bottom;
+
+  const clamped = clampInsideFrame(desired, frame, padding);
+  const candidate: Rect = { ...desired, x: clamped.x, y: clamped.y };
+
+  if (!occupied.some(o => rectsIntersect(candidate, o, gap))) {
+    return { x: candidate.x, y: candidate.y };
+  }
+
+  const stepX = desired.w + gap;
+  const stepY = desired.h + gap;
+  for (let y = innerTop; y + desired.h <= innerBottom; y += stepY) {
+    for (let x = innerLeft; x + desired.w <= innerRight; x += stepX) {
+      candidate.x = x;
+      candidate.y = y;
+      if (!occupied.some(o => rectsIntersect(candidate, o, gap))) {
+        return { x, y };
+      }
+    }
+  }
+
+  return clamped;
 }
 
 /**
