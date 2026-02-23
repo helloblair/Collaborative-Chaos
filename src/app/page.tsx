@@ -212,6 +212,452 @@ function BoardThumbnail({ boardId }: { boardId: string }) {
   );
 }
 
+/* ─── Hero Product Mockup (CSS/SVG whiteboard preview) ──────────────────── */
+function ProductMockup() {
+  return (
+    <div className="relative w-full max-w-3xl mx-auto">
+      {/* Outer glow frame */}
+      <div
+        className="mockup-glow rounded-xl overflow-hidden"
+        style={{ border: "1px solid var(--border-default)", background: "var(--surface-elevated)" }}
+      >
+        {/* Toolbar bar */}
+        <div
+          className="flex items-center gap-2 px-4 py-2"
+          style={{ borderBottom: "1px solid var(--border-subtle)", background: "var(--surface-panel)" }}
+        >
+          <div className="flex gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#ef4444", opacity: 0.7 }} />
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#f59e0b", opacity: 0.7 }} />
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: "#22c55e", opacity: 0.7 }} />
+          </div>
+          <div className="flex-1 flex justify-center">
+            <span className="text-[10px] font-medium px-3 py-0.5 rounded" style={{ color: "var(--text-muted)", background: "var(--accent-secondary-bg)" }}>
+              Team Brainstorm — Collaborative Chaos
+            </span>
+          </div>
+        </div>
+
+        {/* Canvas area */}
+        <div className="relative" style={{ background: "#f5f5f5", height: "340px" }}>
+          {/* Grid dots */}
+          <svg className="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                <circle cx="12" cy="12" r="0.8" fill="#d1d5db" />
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
+
+          {/* Sticky notes — floating */}
+          <div className="absolute" style={{ left: "8%", top: "12%", animation: "hero-float-1 8s ease-in-out infinite" }}>
+            <div className="w-32 h-32 rounded-lg shadow-md flex items-center justify-center p-3" style={{ background: "#C9E4DE" }}>
+              <span className="text-[11px] font-medium text-gray-700 text-center leading-tight">User Research Findings</span>
+            </div>
+          </div>
+          <div className="absolute" style={{ left: "28%", top: "45%", animation: "hero-float-2 9s ease-in-out infinite" }}>
+            <div className="w-28 h-28 rounded-lg shadow-md flex items-center justify-center p-3" style={{ background: "#FDECC8" }}>
+              <span className="text-[11px] font-medium text-gray-700 text-center leading-tight">MVP Features</span>
+            </div>
+          </div>
+          <div className="absolute" style={{ left: "52%", top: "15%", animation: "hero-float-3 7s ease-in-out infinite" }}>
+            <div className="w-36 h-28 rounded-lg shadow-md flex items-center justify-center p-3" style={{ background: "#C6DEF1" }}>
+              <span className="text-[11px] font-medium text-gray-700 text-center leading-tight">Architecture Diagram</span>
+            </div>
+          </div>
+          <div className="absolute" style={{ left: "12%", top: "60%", animation: "hero-float-2 10s ease-in-out infinite" }}>
+            <div className="w-24 h-24 rounded-lg shadow-md flex items-center justify-center p-3" style={{ background: "#FFD7D7" }}>
+              <span className="text-[11px] font-medium text-gray-700 text-center leading-tight">Team Vibes</span>
+            </div>
+          </div>
+
+          {/* Rectangle shape */}
+          <div className="absolute" style={{ left: "48%", top: "55%", animation: "hero-float-1 11s ease-in-out infinite" }}>
+            <div className="w-40 h-20 rounded shadow-md flex items-center justify-center" style={{ background: "#E8D5F5" }}>
+              <span className="text-[10px] text-gray-600">Sprint Goals Q1</span>
+            </div>
+          </div>
+
+          {/* Circle shape */}
+          <div className="absolute" style={{ right: "10%", top: "30%", animation: "hero-float-3 9s ease-in-out infinite" }}>
+            <div className="w-20 h-20 rounded-full shadow-md flex items-center justify-center" style={{ background: "#C6DEF1" }}>
+              <span className="text-[9px] text-gray-600 text-center leading-tight">Ideas</span>
+            </div>
+          </div>
+
+          {/* Connector lines (SVG) */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
+            <line x1="26%" y1="38%" x2="36%" y2="50%" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="6 3" opacity="0.5" />
+            <line x1="56%" y1="42%" x2="54%" y2="55%" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="6 3" opacity="0.5" />
+          </svg>
+
+          {/* Live cursors */}
+          <div className="absolute" style={{ left: "40%", top: "28%", animation: "cursor-pulse 2s ease-in-out infinite", zIndex: 5 }}>
+            <svg width="16" height="20" viewBox="0 0 16 20" fill="none">
+              <path d="M1 1L1 15L5 11L10 17L13 14L8 8L14 7L1 1Z" fill="#e11d48" stroke="#fff" strokeWidth="1" />
+            </svg>
+            <span className="ml-3 -mt-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white inline-block" style={{ background: "#e11d48" }}>
+              Sarah
+            </span>
+          </div>
+          <div className="absolute" style={{ left: "68%", top: "55%", animation: "cursor-pulse 2.5s ease-in-out infinite 0.5s", zIndex: 5 }}>
+            <svg width="16" height="20" viewBox="0 0 16 20" fill="none">
+              <path d="M1 1L1 15L5 11L10 17L13 14L8 8L14 7L1 1Z" fill="#2563eb" stroke="#fff" strokeWidth="1" />
+            </svg>
+            <span className="ml-3 -mt-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white inline-block" style={{ background: "#2563eb" }}>
+              Alex
+            </span>
+          </div>
+          <div className="absolute" style={{ left: "22%", top: "70%", animation: "cursor-pulse 3s ease-in-out infinite 1s", zIndex: 5 }}>
+            <svg width="16" height="20" viewBox="0 0 16 20" fill="none">
+              <path d="M1 1L1 15L5 11L10 17L13 14L8 8L14 7L1 1Z" fill="#16a34a" stroke="#fff" strokeWidth="1" />
+            </svg>
+            <span className="ml-3 -mt-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full text-white inline-block" style={{ background: "#16a34a" }}>
+              Jordan
+            </span>
+          </div>
+
+          {/* AI chat panel peeking from right */}
+          <div
+            className="absolute right-0 top-4 bottom-4 w-52 rounded-l-xl flex flex-col"
+            style={{ background: "rgba(20, 52, 84, 0.95)", border: "1px solid rgba(124, 210, 204, 0.2)", borderRight: "none", zIndex: 10 }}
+          >
+            <div className="px-3 py-2 flex items-center gap-2" style={{ borderBottom: "1px solid rgba(124, 210, 204, 0.15)" }}>
+              <span className="text-sm">&#x1F9D9;</span>
+              <span className="text-[10px] font-semibold" style={{ color: "#e0f4ff" }}>AI Assistant</span>
+            </div>
+            <div className="flex-1 px-3 py-2 space-y-2 overflow-hidden">
+              <div className="rounded-lg px-2 py-1.5" style={{ background: "rgba(51, 144, 158, 0.18)" }}>
+                <span className="text-[9px]" style={{ color: "#e0f4ff" }}>Create a SWOT analysis template</span>
+              </div>
+              <div className="rounded-lg px-2 py-1.5" style={{ background: "rgba(141, 190, 213, 0.12)" }}>
+                <span className="text-[9px]" style={{ color: "rgba(255,255,255,0.85)" }}>Done! I created 4 quadrants with headers and sticky notes for each category.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Feature icons (SVG) ──────────────────────────────────────────────── */
+function CollabIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="10" cy="12" r="4" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <circle cx="22" cy="12" r="4" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <path d="M4 26c0-4 3-7 6-7h0c1.5 0 3 .5 4 1.5" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      <path d="M28 26c0-4-3-7-6-7h0c-1.5 0-3 .5-4 1.5" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      {/* Live cursor hint */}
+      <path d="M15 6L15 9L17 7.5L15 6Z" fill="var(--text-accent)" opacity="0.6" />
+    </svg>
+  );
+}
+
+function ShapesIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="3" width="12" height="10" rx="2" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <circle cx="23" cy="10" r="5" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <rect x="4" y="20" width="10" height="10" rx="1" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" transform="rotate(-3 9 25)" />
+      <line x1="19" y1="22" x2="28" y2="28" stroke="var(--text-accent)" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function AIIcon() {
+  return (
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Chat bubble */}
+      <path d="M6 6h20a2 2 0 012 2v12a2 2 0 01-2 2H14l-4 4v-4H6a2 2 0 01-2-2V8a2 2 0 012-2z" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      {/* Sparkle */}
+      <path d="M16 11v4M14 13h4" stroke="var(--text-accent)" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="22" cy="11" r="1" fill="var(--text-accent)" opacity="0.5" />
+      <circle cx="10" cy="15" r="1" fill="var(--text-accent)" opacity="0.5" />
+    </svg>
+  );
+}
+
+function SyncIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 14a10 10 0 0118-6" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      <path d="M24 14a10 10 0 01-18 6" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+      <polyline points="19,4 22,8 18,9" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="9,24 6,20 10,19" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TemplatesIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="3" width="10" height="10" rx="2" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <rect x="15" y="3" width="10" height="10" rx="2" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <rect x="3" y="15" width="10" height="10" rx="2" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <rect x="15" y="15" width="10" height="10" rx="2" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <line x1="8" y1="7" x2="8" y2="9" stroke="var(--text-accent)" strokeWidth="1" strokeLinecap="round" opacity="0.5" />
+      <line x1="20" y1="7" x2="20" y2="9" stroke="var(--text-accent)" strokeWidth="1" strokeLinecap="round" opacity="0.5" />
+    </svg>
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="20" cy="6" r="3" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <circle cx="8" cy="14" r="3" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <circle cx="20" cy="22" r="3" stroke="var(--text-accent)" strokeWidth="1.5" fill="none" />
+      <line x1="10.5" y1="12.5" x2="17.5" y2="7.5" stroke="var(--text-accent)" strokeWidth="1.5" />
+      <line x1="10.5" y1="15.5" x2="17.5" y2="20.5" stroke="var(--text-accent)" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/* ─── Scroll reveal hook ───────────────────────────────────────────────── */
+function useScrollReveal() {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.classList.add("is-visible");
+          observer.unobserve(el);
+        }
+      },
+      { threshold: 0.15 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return ref;
+}
+
+function RevealSection({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
+  const ref = useScrollReveal();
+  const delayClass = delay === 1 ? " landing-reveal-delay-1" : delay === 2 ? " landing-reveal-delay-2" : delay === 3 ? " landing-reveal-delay-3" : "";
+  return (
+    <div ref={ref} className={`landing-reveal${delayClass} ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+/* ─── Landing Page (unauthenticated) ───────────────────────────────────── */
+function LandingPage({ onLogin }: { onLogin: () => void }) {
+  const { t } = useTheme();
+
+  const features = [
+    {
+      icon: <CollabIcon />,
+      title: "Real-Time Collaboration",
+      desc: "Work together on the same board simultaneously. See live cursors, watch changes appear instantly, and never miss a beat.",
+      primary: true,
+    },
+    {
+      icon: <ShapesIcon />,
+      title: "Shape & Drawing Tools",
+      desc: "Sticky notes, rectangles, circles, connectors, frames, and more. Build anything from architecture diagrams to mood boards.",
+      primary: true,
+    },
+    {
+      icon: <AIIcon />,
+      title: "Built-In AI Assistant",
+      desc: "Generate SWOT analyses, brainstorm ideas, create templates, and arrange layouts — all with a simple chat command.",
+      primary: true,
+    },
+    {
+      icon: <SyncIcon />,
+      title: "Instant Sync",
+      desc: "Every stroke, every sticky, every move syncs across all collaborators in real time. No refresh needed.",
+    },
+    {
+      icon: <TemplatesIcon />,
+      title: "Smart Templates",
+      desc: "Kick off projects with pre-built templates for retros, journey maps, and strategic planning.",
+    },
+    {
+      icon: <ShareIcon />,
+      title: "Easy Sharing",
+      desc: "Share a link and your team is on the board. No sign-up walls or complicated permissions.",
+    },
+  ];
+
+  return (
+    <main className="min-h-screen overflow-x-hidden">
+      <ThemeToggle />
+
+      {/* ═══ HERO ═══════════════════════════════════════════════════════════ */}
+      <section className="relative px-6 pt-20 pb-24 sm:pt-28 sm:pb-32 lg:pt-36 lg:pb-40">
+        <div className="max-w-5xl mx-auto text-center">
+          {/* Brand */}
+          <RevealSection>
+            <p className="text-sm font-semibold tracking-widest uppercase mb-4" style={{ color: "var(--text-accent)" }}>
+              {t("Collaborative Chaos")}
+            </p>
+          </RevealSection>
+
+          {/* Headline options — pick your favorite: */}
+          {/* Option A: "Think together. Build together." */}
+          {/* Option B: "Where ideas collide and great things happen." */}
+          {/* Option C: "Your team's visual playground." */}
+          <RevealSection delay={1}>
+            <h1
+              className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-tight mb-6"
+              style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}
+            >
+              Where ideas collide and<br className="hidden sm:block" /> great things happen
+            </h1>
+          </RevealSection>
+
+          <RevealSection delay={2}>
+            <p className="text-base sm:text-lg max-w-2xl mx-auto mb-10 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+              A collaborative whiteboard where your whole team can brainstorm, diagram, and plan in real time — with an AI assistant built right in.
+            </p>
+          </RevealSection>
+
+          <RevealSection delay={3}>
+            <button
+              type="button"
+              onClick={onLogin}
+              className="btn-primary rounded-xl px-8 py-4 text-base font-semibold active:scale-95 transition-all"
+              style={{ fontSize: "1rem" }}
+            >
+              Start Building — It&apos;s Free
+            </button>
+          </RevealSection>
+
+          {/* Product mockup */}
+          <RevealSection delay={3} className="mt-16 sm:mt-20">
+            <ProductMockup />
+          </RevealSection>
+        </div>
+      </section>
+
+      {/* ═══ FEATURES ══════════════════════════════════════════════════════ */}
+      <section className="px-6 py-24 sm:py-32">
+        <div className="max-w-5xl mx-auto">
+          <RevealSection className="text-center mb-16">
+            <h2
+              className="text-3xl sm:text-4xl font-bold tracking-tight mb-4"
+              style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}
+            >
+              Everything you need to think visually
+            </h2>
+            <p className="text-base max-w-xl mx-auto" style={{ color: "var(--text-secondary)" }}>
+              Powerful tools that stay out of your way until you need them.
+            </p>
+          </RevealSection>
+
+          {/* Primary features — large cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {features.filter(f => f.primary).map((f, i) => (
+              <RevealSection key={f.title} delay={(i + 1) as 1 | 2 | 3}>
+                <div
+                  className="feature-card rounded-xl p-6 h-full"
+                  style={{
+                    background: "var(--glass-bg)",
+                    backdropFilter: "blur(var(--blur-glass))",
+                    WebkitBackdropFilter: "blur(var(--blur-glass))",
+                    border: "1px solid var(--glass-border)",
+                    boxShadow: "var(--glass-shadow)",
+                  }}
+                >
+                  <div className="mb-4 w-12 h-12 rounded-lg flex items-center justify-center" style={{ background: "var(--accent-secondary-bg)" }}>
+                    {f.icon}
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>
+                    {f.title}
+                  </h3>
+                  <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                    {f.desc}
+                  </p>
+                </div>
+              </RevealSection>
+            ))}
+          </div>
+
+          {/* Secondary features — smaller cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            {features.filter(f => !f.primary).map((f, i) => (
+              <RevealSection key={f.title} delay={(i + 1) as 1 | 2 | 3}>
+                <div
+                  className="feature-card rounded-xl p-5 h-full flex gap-4 items-start"
+                  style={{
+                    background: "var(--glass-bg)",
+                    backdropFilter: "blur(var(--blur-glass))",
+                    WebkitBackdropFilter: "blur(var(--blur-glass))",
+                    border: "1px solid var(--border-subtle)",
+                  }}
+                >
+                  <div className="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "var(--accent-secondary-bg)" }}>
+                    {f.icon}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold mb-1" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>
+                      {f.title}
+                    </h3>
+                    <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                      {f.desc}
+                    </p>
+                  </div>
+                </div>
+              </RevealSection>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ CTA ════════════════════════════════════════════════════════════ */}
+      <section className="relative px-6 py-24 sm:py-32">
+        {/* Background grid texture */}
+        <div className="cta-grid-bg absolute inset-0 pointer-events-none" aria-hidden="true" />
+
+        <div className="relative max-w-2xl mx-auto text-center">
+          <RevealSection>
+            <h2
+              className="text-3xl sm:text-4xl font-bold tracking-tight mb-4"
+              style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}
+            >
+              Your team&apos;s next great idea starts on a board
+            </h2>
+          </RevealSection>
+          <RevealSection delay={1}>
+            <p className="text-base mb-10" style={{ color: "var(--text-secondary)" }}>
+              Jump in, invite your team, and start building together. No credit card, no setup, no friction.
+            </p>
+          </RevealSection>
+          <RevealSection delay={2}>
+            <button
+              type="button"
+              onClick={onLogin}
+              className="btn-primary rounded-xl px-10 py-4 text-base font-semibold active:scale-95 transition-all"
+              style={{ fontSize: "1.05rem" }}
+            >
+              Create Your First Board
+            </button>
+          </RevealSection>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="px-6 py-8 text-center">
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Built with chaos, shipped with love.
+        </span>
+      </footer>
+    </main>
+  );
+}
+
 export default function Home() {
   const { t } = useTheme();
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -287,44 +733,35 @@ export default function Home() {
   }
 
   if (user === null) {
-    return (
-      <main className="min-h-screen flex items-center justify-center p-6">
-        <ThemeToggle />
-        <div className="glass-panel w-full max-w-md rounded-xl shadow-2xl p-8">
-          <h1 className="text-2xl font-semibold mb-1" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>
-            {t("Collaborative Chaos")}
-          </h1>
-          <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>
-            {t("A shared canvas for sticky notes and shapes.")}
-          </p>
-          <button
-            type="button"
-            onClick={login}
-            className="btn-primary w-full rounded-lg px-4 py-3 font-medium text-sm active:scale-95 transition-colors"
-          >
-            {t("Sign in with Google")}
-          </button>
-        </div>
-      </main>
-    );
+    return <LandingPage onLogin={login} />;
   }
 
   return (
-    <main className="min-h-screen p-6">
+    <main className="min-h-screen px-10 py-12 sm:px-14 sm:py-16">
       <ThemeToggle />
       <div className="max-w-5xl mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>{t("My Boards")}</h1>
-          <div className="flex items-center gap-3">
-            <span className="text-sm truncate max-w-[180px]" style={{ color: "var(--text-secondary)" }}>
+        <div className="flex items-center justify-between mb-10">
+          <h1 className="text-5xl font-bold tracking-tight" style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}>{t("My Boards")}</h1>
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-bold truncate max-w-[200px]" style={{ color: "var(--text-primary)" }}>
               {user.displayName ?? user.email}
             </span>
             <button
               type="button"
               onClick={() => signOut(auth)}
-              className="text-sm transition-colors"
-              style={{ color: "var(--text-muted)" }}
+              className="rounded-lg px-4 py-2 text-sm font-medium border transition-colors"
+              style={{
+                background: "var(--accent-secondary-bg)",
+                borderColor: "var(--border-default)",
+                color: "var(--text-secondary)",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--accent-secondary-hover)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--accent-secondary-bg)";
+              }}
             >
               {t("Sign out")}
             </button>
@@ -335,7 +772,7 @@ export default function Home() {
         {showNewBoard ? (
           <form
             onSubmit={handleCreateBoard}
-            className="glass-panel mb-6 flex gap-2 items-center rounded-xl p-3"
+            className="glass-panel mb-8 flex gap-3 items-center rounded-xl p-4"
           >
             <input
               ref={nameInputRef}
@@ -367,7 +804,7 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setShowNewBoard(true)}
-            className="btn-primary mb-6 rounded-lg px-4 py-2 text-sm font-medium active:scale-95 transition-colors"
+            className="btn-primary mb-8 rounded-lg px-5 py-2.5 text-sm font-medium active:scale-95 transition-colors"
           >
             {t("+ New Board")}
           </button>
@@ -375,11 +812,11 @@ export default function Home() {
 
         {/* Board grid — polaroid cards */}
         {boards.length === 0 ? (
-          <div className="text-center py-16 text-sm" style={{ color: "var(--text-muted)" }}>
+          <div className="text-center py-20 text-sm" style={{ color: "var(--text-muted)" }}>
             {t("No boards yet. Create one to get started.")}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-10">
             {boards.map((board) => {
               const rotation = polaroidRotation(board.id);
               return (
