@@ -14,23 +14,24 @@ A complete guide to every feature of the collaborative whiteboard, organized fro
 6. [Selecting and Transforming](#6-selecting-and-transforming)
 7. [Connectors](#7-connectors)
 8. [Frames](#8-frames)
-9. [Operations — Delete, Duplicate, Copy/Paste](#9-operations)
-10. [Using the AI Agent](#10-using-the-ai-agent)
-11. [Collaborating in Real Time](#11-collaborating-in-real-time)
-12. [Keyboard Shortcuts](#12-keyboard-shortcuts)
-13. [Behind the Scenes](#13-behind-the-scenes)
+9. [Operations — Delete, Duplicate, Copy/Paste, Undo](#9-operations)
+10. [Using the AI Agent (Sorting Hat)](#10-using-the-ai-agent-sorting-hat)
+11. [Themes — Aurora and Magic](#11-themes--aurora-and-magic)
+12. [Collaborating in Real Time](#12-collaborating-in-real-time)
+13. [Keyboard Shortcuts](#13-keyboard-shortcuts)
+14. [Behind the Scenes](#14-behind-the-scenes)
 
 ---
 
 ## 1. Signing In
 
-1. Open the app. You'll see a centered card titled **"Collaborative Chaos"**.
+1. Open the app. You'll see a landing page with a product mockup, feature cards, and a call-to-action.
 2. Click **"Sign in with Google"**. A Google OAuth popup will open.
 3. Choose your Google account. Once authenticated, you land on the board list.
 
 If you navigate directly to a board URL without being signed in, you'll see a **"Sign in with Google"** link at the top of the page.
 
-To sign out, click **"Sign Out"** at the bottom of the left sidebar (on a board) or the **"Sign out"** link in the top-right corner (on the home page).
+To sign out, click **"Sign Out"** at the bottom of the left sidebar (on a board) or the **"Sign out"** link in the top-right corner (on the home page). In Magic mode, this button reads **"Vanish"**.
 
 ---
 
@@ -44,12 +45,12 @@ To sign out, click **"Sign Out"** at the bottom of the left sidebar (on a board)
 
 ### Opening a Board
 
-Click any board card on the home page. Each card shows the board name, member count, member avatars, and a relative timestamp (e.g. "5m ago").
+Click any board card on the home page. Each card shows the board name, member count, member avatars, and a relative timestamp (e.g. "5m ago"). Live board thumbnails preview board content.
 
 ### Sharing a Board
 
 1. Inside a board, click **"Share…"** at the bottom of the left sidebar.
-2. An invite link is copied to your clipboard. Send it to anyone.
+2. An invite link is copied to your clipboard. A tooltip confirms **"Link copied!"** (or **"Owl dispatched!"** in Magic mode).
 3. When they open the link, they'll see **"You've been invited to this board"** with a **"Join Board"** button.
 
 ### Deleting a Board
@@ -69,32 +70,47 @@ The board is an infinite canvas. You can pan and zoom freely.
 | Action | How |
 | :----- | :-- |
 | **Zoom in/out** | Scroll the mouse wheel. Zoom stays centered on your cursor. |
-| **Pan** | Hold `Space` and drag anywhere on the canvas. |
+| **Pan** | Hold `Space` and drag anywhere on the canvas, or press `H` to enter pan mode. |
 | **Pan (touch)** | Single-finger drag on an empty area of the canvas. |
 
 - Zoom range: 0.4x to 2.5x.
-- The background shows a subtle grid to help with spatial orientation.
+- The background shows a subtle grid to help with spatial orientation. Grid color adapts to the active theme.
 
 ---
 
 ## 4. Creating Objects
 
-All creation tools live in the **left sidebar** (the 192px-wide panel on the left edge of the screen).
+All creation tools live in the **left sidebar** (the 192px-wide panel on the left edge of the screen). Tools are arranged in a 3-column grid.
 
 ### Sticky Notes
 
-1. Click **"Add Sticky"** in the sidebar.
+1. Click **"Sticky Note"** (or **"Parchment Note"** in Magic mode) in the sidebar.
 2. A sticky note appears on the canvas (default: mint green, 160×160px, text reads "New note").
 3. If you previously clicked a spot on the canvas, the note spawns there. Otherwise it spawns at the center of your viewport.
 
 ### Rectangles
 
-1. Click **"Add Rectangle"** in the sidebar.
+1. Click **"Rectangle"** in the sidebar.
 2. A rectangle appears at the center of your viewport (default: sky blue, 200×120px).
+
+### Circles
+
+1. Click **"Circle"** in the sidebar.
+2. A circle appears at the center of your viewport.
+
+### Lines
+
+1. Click **"Line"** in the sidebar.
+2. A line element appears at the center of your viewport.
+
+### Hearts
+
+1. Click **"Heart"** in the sidebar.
+2. A heart shape appears at the center of your viewport.
 
 ### Text
 
-1. Click **"Add Text"** in the sidebar.
+1. Click **"Text"** in the sidebar.
 2. A text element spawns at your viewport center and immediately enters edit mode — start typing right away.
 3. Press `Enter` to commit, or `Escape` to cancel.
 
@@ -144,7 +160,7 @@ Text elements have a separate **"Text Color"** palette (near-black, gray, blue, 
 
 | Action | How |
 | :----- | :-- |
-| **Select one item** | Click it. |
+| **Select one item** | Click it (or press `V` to enter select mode first). |
 | **Add/remove from selection** | `Shift + Click` an item to toggle it in or out of the current selection. |
 | **Drag-to-select** | In select mode, click and drag on an empty area of the canvas. A dashed indigo rectangle appears. All items it touches are selected on release. |
 | **Deselect all** | Click on an empty area of the canvas, or press `Escape`. |
@@ -217,34 +233,38 @@ Frames render as dashed indigo borders with a colored title bar at the top. They
 
 | Operation | Shortcut | Notes |
 | :-------- | :------- | :---- |
-| **Delete** | `Delete` or `Backspace` | Deletes all selected items and any connectors attached to them. Also works for a selected connector. |
-| **Duplicate** | `Cmd+D` / `Ctrl+D` | Creates copies offset by +20px. The copies become the new selection. |
+| **Delete** | `Delete` or `Backspace` | Deletes all selected items and any connectors attached to them. Also works for a selected connector. In Magic mode, the button reads **"Evanesco"**. |
+| **Duplicate** | `Cmd+D` / `Ctrl+D` | Creates copies offset by +20px. The copies become the new selection. In Magic mode: **"Geminio"**. |
 | **Copy** | `Cmd+C` / `Ctrl+C` | Copies selected items to an internal clipboard. |
 | **Paste** | `Cmd+V` / `Ctrl+V` | Pastes from the clipboard at the center of your viewport. Repeated pastes stagger by +20px. |
+| **Undo** | `Cmd+Z` / `Ctrl+Z` | Undoes the last operation. Supports create, delete, move, field update, and connector operations. Up to 50 entries. Also available as an undo button in the sidebar. |
 
 You can also delete via the red **"Delete"** button in the sidebar when items are selected.
 
 ---
 
-## 10. Using the AI Agent
+## 10. Using the AI Agent (Sorting Hat)
 
-The AI agent can create, move, rearrange, and template objects on your board using natural language.
+The AI agent can create, move, rearrange, and template objects on your board using natural language. It operates as a chat interface with multi-turn conversation support.
 
-### Opening the Command Bar
+### Opening the Chat Panel
 
-- Click the **"✦ Ask AI"** button (violet) at the bottom of the sidebar, **or**
+- Click the **floating action button** (bottom-right corner of the screen) — a robot icon in Aurora mode, a wizard hat in Magic mode, **or**
 - Press `Cmd+K` / `Ctrl+K` from anywhere.
 
-A floating panel appears at the bottom-center of the canvas with a text input.
+A 340px-wide chat panel slides in from the right side of the screen.
 
 ### Issuing a Command
 
-1. Type a natural language instruction in the input field.
-2. Click **"Run"** or press `Enter`.
-3. A spinner and **"Thinking…"** appear while the AI processes.
-4. Results appear on the board with a staggered fade-in animation.
+1. Type a natural language instruction in the input field at the bottom of the panel.
+2. Click the **Send** button (or **Wand** icon in Magic mode) or press `Enter`.
+3. A typing indicator appears while the AI processes (**"Thinking…"** in Aurora, **"The hat is thinking…"** in Magic).
+4. Results appear on the board with a staggered fade-in animation. The viewport auto-centers on newly created items.
+5. A summary appears in the chat (e.g. "3 sticky notes conjured"). In Magic mode, this displays as a **"Revelio!"** animation with sparkle effects.
 
-Press `Escape` or click outside the panel to close it.
+The AI remembers earlier messages in the conversation, so you can issue follow-up commands like "now change those to blue" or "add two more."
+
+Press `Escape` or click the **X** button to close the panel.
 
 ### Example Commands
 
@@ -253,6 +273,7 @@ Press `Escape` or click outside the panel to close it.
 - "Add a yellow sticky note that says 'User Research'"
 - "Create a blue rectangle"
 - "Add a frame called 'Sprint Planning'"
+- "Create a heart shape"
 
 **Manipulation**
 
@@ -266,18 +287,20 @@ Press `Escape` or click outside the panel to close it.
 - "Create a 2x3 grid of sticky notes for pros and cons"
 - "Space these elements evenly"
 
-**Templates (complex, multi-step)**
+**Templates (complex, multi-step with auto-populated content)**
 
-- "Create a SWOT analysis" — generates 4 labeled quadrant frames (Strengths, Weaknesses, Opportunities, Threats)
-- "Build a user journey map with 5 stages" — generates a horizontal row of labeled frames connected by arrows
-- "Set up a retrospective board" — generates 3 columns (What Went Well, What Didn't, Action Items)
+- "Create a SWOT analysis for launching a mobile app" — generates 4 labeled quadrant frames (Strengths, Weaknesses, Opportunities, Threats) with topic-relevant sticky notes inside each quadrant, wrapped in a labeled frame.
+- "Build a user journey map with 5 stages for an onboarding flow" — generates a horizontal row of labeled frames connected by arrows, with relevant sticky notes in each stage.
+- "Set up a retrospective board for our last sprint" — generates 3 columns (What Went Well, What Didn't, Action Items) with pre-populated stickies.
+
+Template commands automatically populate sticky notes inside each section with content relevant to your topic. The AI creates 2–4 stickies per section, positioned using the deterministic layout engine.
 
 ### AI Tools Available
 
 | Tool | What It Does |
 | :--- | :----------- |
 | `createStickyNote` | Places a sticky note with text, color, and position |
-| `createShape` | Creates a rectangle, circle, or line |
+| `createShape` | Creates a rectangle, circle, line, or heart |
 | `createFrame` | Creates a labeled frame/container |
 | `createConnector` | Draws a line or arrow between two objects |
 | `moveObject` | Moves an object to a new position |
@@ -286,29 +309,89 @@ Press `Escape` or click outside the panel to close it.
 | `changeColor` | Changes an object's fill color |
 | `arrangeInGrid` | Arranges objects into a grid layout |
 | `getBoardState` | Reads the board so the AI can reason about existing objects |
-| `createSWOTTemplate` | One-shot SWOT analysis (4 quadrants) |
-| `createJourneyMap` | One-shot journey map (labeled stages with arrows) |
-| `createRetroTemplate` | One-shot retrospective board (3 columns) |
+| `createSWOTTemplate` | One-shot SWOT analysis (4 quadrants with auto-populated stickies) |
+| `createJourneyMap` | One-shot journey map (labeled stages with arrows and auto-populated stickies) |
+| `createRetroTemplate` | One-shot retrospective board (3 columns with auto-populated stickies) |
+
+### Auto-Wrapping
+
+When the AI creates 2 or more standalone sticky notes (not as part of a template), they are automatically wrapped in a frame titled with your command text. This keeps AI-created content visually grouped.
 
 ### Error Handling
 
-If a command fails, an error message appears inside the command bar. If you close the bar, a red toast notification appears at the bottom of the screen with a dismiss button.
+If a command fails, an error message appears inside the chat panel. If you close the panel, a red toast notification appears at the bottom of the screen with a dismiss button.
 
 ---
 
-## 11. Collaborating in Real Time
+## 11. Themes — Aurora and Magic
+
+The app has two visual themes that change the entire look and feel.
+
+### Switching Themes
+
+Look for the **secret toggle button** in the top-right corner of the screen:
+
+- In **Aurora** mode, it appears as a **keyhole** icon.
+- In **Magic** mode, it appears as a **gothic door** icon.
+
+Hover over it to see particle burst and smoke effects. Click it to switch themes. A radial reveal animation sweeps outward from the button.
+
+- **Aurora → Magic tooltip:** "I solemnly swear I am up to no good..."
+- **Magic → Aurora tooltip:** "Mischief managed."
+
+Your theme preference is saved and persists across sessions.
+
+### Aurora Theme (Default)
+
+- Deep navy-teal glassmorphism aesthetic
+- Animated aurora drift background on non-board pages
+- Glassmorphic panels with blur effects
+- Clean, modern sans-serif typography (Geist)
+- Light grey board canvas with subtle grid
+- AI panel uses a **robot** icon and straightforward labels
+
+### Magic Theme
+
+- Dark parchment/burgundy/gold aesthetic inspired by Harry Potter
+- Warm amber and gold text on dark backgrounds
+- Cinzel serif headings for a fantasy feel
+- Parchment texture overlays on panels
+- Warm parchment-colored board canvas
+- **Ink footprint trail** follows your cursor on the board canvas
+- **All UI labels transform** to wizarding equivalents:
+
+| Aurora Label | Magic Label |
+| :----------- | :---------- |
+| My Boards | The Great Hall |
+| Sign out | Vanish |
+| Sticky Note | Parchment Note |
+| Delete (Del) | Evanesco (Del) |
+| Duplicate | Geminio |
+| AI Assistant | The Sorting Hat |
+| Thinking... | The hat is thinking... |
+| Done | Revelio! (with sparkle animation) |
+
+...and 50+ more label mappings throughout the UI.
+
+---
+
+## 12. Collaborating in Real Time
 
 Everything described above works simultaneously for all users on the same board.
 
 ### Presence — Who's Online
 
-The left sidebar shows an **"Online (N)"** section listing the names of all other users currently on the board. If no one else is connected, it reads **"No one else online"**.
+The left sidebar shows an **"Online (N)"** section listing the names of all users currently on the board. Your name appears first with a **(You)** suffix.
 
 Each user is assigned a consistent color (red, blue, green, amber, or purple) based on their account.
 
+**Idle detection:** Users who have been inactive for more than 2 minutes appear dimmed with a grey dot and italic styling, so you can tell who's actively working versus away.
+
+If no one else is connected, it reads **"No one else online"**.
+
 ### Live Cursors
 
-Other users' cursors appear on the canvas as **colored circles** with their name displayed beside them. Cursor positions update in near-real-time.
+Other users' cursors appear on the canvas as **colored circles** with their name displayed beside them. Cursor positions update at ~60Hz for smooth tracking.
 
 ### Live Dragging
 
@@ -320,7 +403,7 @@ Any object created, edited, moved, resized, rotated, recolored, or deleted by an
 
 ### AI Commands Are Shared
 
-When any user issues an AI command, the resulting objects appear on **everyone's** board. Multiple users can issue AI commands at the same time without conflicts.
+When any user issues an AI command, the resulting objects appear on **everyone's** board. Multiple users can issue AI commands at the same time without conflicts (protected by the reservation system).
 
 ### Disconnect and Reconnect
 
@@ -328,24 +411,27 @@ If your connection drops, the app reconnects automatically. Board state is persi
 
 ---
 
-## 12. Keyboard Shortcuts
+## 13. Keyboard Shortcuts
 
 | Shortcut | Action |
 | :------- | :----- |
-| `Escape` | Deselect all / cancel current tool / close AI bar |
+| `V` | Switch to select mode |
+| `H` | Switch to pan mode |
+| `Escape` | Deselect all / cancel current tool / close AI panel |
 | `Space` (hold) + drag | Pan the canvas |
 | `Delete` / `Backspace` | Delete selected items or connector |
+| `Cmd/Ctrl + Z` | Undo last action |
 | `Cmd/Ctrl + D` | Duplicate selected items |
 | `Cmd/Ctrl + C` | Copy selected items |
 | `Cmd/Ctrl + V` | Paste items |
-| `Cmd/Ctrl + K` | Open or close the AI command bar |
+| `Cmd/Ctrl + K` | Open or close the AI chat panel |
 | `Enter` | Commit text edit / frame title edit |
-| `Shift + Enter` | Newline inside a text edit |
+| `Shift + Enter` | Newline inside a text edit (or in the AI chat input) |
 | `Escape` (while editing) | Cancel text edit without saving |
 
 ---
 
-## 13. Behind the Scenes
+## 14. Behind the Scenes
 
 These features fulfill PRD requirements but aren't directly controlled by the user.
 
@@ -359,11 +445,19 @@ While a user is actively dragging an item, a temporary lock is broadcast through
 
 ### Presence Heartbeat and Stale Detection
 
-Each client sends a heartbeat every 8 seconds. If no heartbeat is received for 20 seconds, that user is considered stale and removed from the online list and cursor display. On disconnect (tab close, crash, network loss), the Firebase server automatically removes the presence entry.
+Each client sends a heartbeat every 8 seconds. If no heartbeat is received for 20 seconds, that user is considered stale and removed from the online list and cursor display. On disconnect (tab close, crash, network loss), the Firebase server automatically removes the presence entry. Users idle for more than 2 minutes are shown with dimmed styling.
 
 ### Offline Persistence (Firestore Local Cache)
 
 Firestore is initialized with `persistentLocalCache`, which means board data is cached in your browser's IndexedDB. If you briefly lose connectivity, the board continues to display correctly and queued writes are sent once you reconnect.
+
+### Viewport Culling
+
+To support 500+ objects, only items that intersect the visible viewport (plus a 200px buffer) are rendered. Selected items, AI-animating items, and connector endpoints are always rendered regardless of visibility. This keeps the Konva canvas performant during pan and zoom.
+
+### React.memo Optimization
+
+All 8 item components (RectItem, StickyItem, CircleItem, LineItem, HeartItem, TextItem, FrameItem) and ConnectorLine are wrapped in `React.memo` with custom equality functions. Only render-relevant fields (position, size, color, text, rotation) are compared — metadata like `createdBy` and `updatedAt` are ignored.
 
 ### Performance Targets
 
@@ -373,13 +467,13 @@ The application is built to meet these benchmarks:
 | :----- | :----- |
 | Frame rate | 60 FPS during pan, zoom, and manipulation |
 | Object sync latency | < 100ms |
-| Cursor sync latency | < 50ms |
+| Cursor sync latency | < 50ms (16ms broadcast interval) |
 | Object capacity | 500+ objects without degradation |
 | Concurrent users | 5+ without degradation |
 
 ### Cursor Update Throttling
 
-Cursor positions are broadcast at most every **40ms** to balance responsiveness with network overhead. Drag positions are broadcast every **50ms**.
+Cursor positions are broadcast at most every **16ms** (one frame at 60fps) to maximize smoothness. Drag positions are broadcast every **50ms**.
 
 ### Connector Geometry
 
@@ -391,4 +485,8 @@ When an AI command is in progress, a temporary reservation document is written t
 
 ### AI Stagger Animation
 
-Objects created by the AI agent appear with a staggered entrance animation — each item fades in and scales up at 100ms intervals, giving a sequential "build" effect.
+Objects created by the AI agent appear with a staggered entrance animation — each item fades in and scales up at 100ms intervals, giving a sequential "build" effect. After all items animate in, the viewport auto-centers on the newly created content.
+
+### Debug / Stress Test Mode
+
+Append `?debug=1` to the board URL to reveal a debug overlay with an "Add 500 Items" stress test button. Items are generated in a spiral pattern for performance testing.
