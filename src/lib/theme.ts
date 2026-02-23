@@ -207,6 +207,7 @@ export const magicVars: Record<string, string> = {
 /* ─── Magic Mode copy swaps ──────────────────────────────────────────────── */
 export const magicCopy: Record<string, string> = {
   "Collaborative Chaos": "The Wizarding Workspace",
+  "Where ideas collide and great things happen": "Where Broomsticks Collide and Mischief Happens",
   "A shared canvas for sticky notes and shapes.": "A shared canvas for spells and enchantments.",
   "My Boards": "The Great Hall",
   "← My Boards": "← The Great Hall",
