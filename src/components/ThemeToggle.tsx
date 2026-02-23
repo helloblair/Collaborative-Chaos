@@ -42,23 +42,41 @@ export function ThemeToggle() {
   };
 
   return (
-    <button
-      ref={btnRef}
-      type="button"
-      onClick={handleClick}
-      className="theme-toggle-btn"
-      aria-label={
-        mode === "aurora"
-          ? "The Room of Requirement awaits..."
-          : "Return to Aurora"
-      }
-      title={
-        mode === "aurora"
-          ? "Room of Requirement"
-          : "Return to Aurora"
-      }
-    >
-      {mode === "aurora" ? <KeyholeIcon /> : <DoorIcon />}
-    </button>
+    <div className="secret-toggle-container">
+      {/* Particle burst on hover */}
+      <span className="secret-particle secret-particle-1" />
+      <span className="secret-particle secret-particle-2" />
+      <span className="secret-particle secret-particle-3" />
+      <span className="secret-particle secret-particle-4" />
+      <span className="secret-particle secret-particle-5" />
+      <span className="secret-particle secret-particle-6" />
+      <span className="secret-particle secret-particle-7" />
+      <span className="secret-particle secret-particle-8" />
+
+      {/* Smoke wisps on hover */}
+      <span className="secret-smoke secret-smoke-1" />
+      <span className="secret-smoke secret-smoke-2" />
+
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={handleClick}
+        className="theme-toggle-btn"
+        aria-label={
+          mode === "aurora"
+            ? "I solemnly swear I am up to no good..."
+            : "Mischief managed."
+        }
+      >
+        {mode === "aurora" ? <KeyholeIcon /> : <DoorIcon />}
+      </button>
+
+      {/* Tooltip — appears on hover with delay */}
+      <span className="secret-toggle-tooltip">
+        {mode === "aurora"
+          ? "I solemnly swear I am up to no good..."
+          : "Mischief managed."}
+      </span>
+    </div>
   );
 }

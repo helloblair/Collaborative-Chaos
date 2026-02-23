@@ -1104,6 +1104,10 @@ export type BoardCanvasProps = {
   onCenterComplete?: () => void;
   /** Stroke color for presence cursor dots — comes from theme. */
   cursorStrokeColor?: string;
+  /** Board background fill — themed. */
+  boardBg?: string;
+  /** Grid line stroke color — themed. */
+  gridColor?: string;
 };
 
 export function BoardCanvas({
@@ -1137,6 +1141,8 @@ export function BoardCanvas({
   centerOnIds = [],
   onCenterComplete,
   cursorStrokeColor = "#0f0a1a",
+  boardBg = "#f5f5f5",
+  gridColor = "#f3f4f6",
 }: BoardCanvasProps) {
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
@@ -1855,12 +1861,12 @@ export function BoardCanvas({
             y={-WORLD_HALF}
             width={WORLD_HALF * 2}
             height={WORLD_HALF * 2}
-            fill="#f5f5f5"
+            fill={boardBg}
             onClick={() => onBgClick?.()}
           />
           {/* Subtle grid lines every 40px */}
-          <Line points={gridLines.vertical} stroke="#f3f4f6" strokeWidth={1} listening={false} />
-          <Line points={gridLines.horizontal} stroke="#f3f4f6" strokeWidth={1} listening={false} />
+          <Line points={gridLines.vertical} stroke={gridColor} strokeWidth={1} listening={false} />
+          <Line points={gridLines.horizontal} stroke={gridColor} strokeWidth={1} listening={false} />
 
           {/* Frames — rendered first so they appear behind all other content */}
           {visibleFrameItems.map((item) => {

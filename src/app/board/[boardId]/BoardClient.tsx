@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { BoardCanvas } from "./BoardCanvas";
 import SortingHatPanel from "@/components/SortingHatPanel";
+import FootprintTrail from "@/components/FootprintTrail";
 import { useTheme } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
@@ -93,7 +94,9 @@ function pickColor(seed: string) {
 
 export default function BoardClient({ boardId }: { boardId: string }) {
   const { mode, t } = useTheme();
-  const cursorStrokeColor = mode === "aurora" ? "#0f0a1a" : "#2c1810";
+  const cursorStrokeColor = mode === "aurora" ? "#0a2e2e" : "#2c1810";
+  const boardBg = mode === "aurora" ? "#f5f5f5" : "#f5f0e6";
+  const gridColor = mode === "aurora" ? "#f3f4f6" : "rgba(139, 90, 43, 0.1)";
   const router = useRouter();
   const searchParams = useSearchParams();
   const showDebug = searchParams.get("debug") === "1";
@@ -1613,7 +1616,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       </aside>
 
       {/* Canvas fills viewport to the right of the sidebar */}
-      <div className="absolute top-0 left-48 right-0 bottom-0 z-0">
+      <div className="absolute top-0 left-48 right-0 bottom-0 z-0" style={{ backgroundColor: boardBg }}>
         {canvasWidth > 0 && viewportSize.height > 0 && (
           <BoardCanvas
             width={canvasWidth}
@@ -1646,8 +1649,11 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             centerOnIds={centerOnIds}
             onCenterComplete={() => setCenterOnIds([])}
             cursorStrokeColor={cursorStrokeColor}
+            boardBg={boardBg}
+            gridColor={gridColor}
           />
         )}
+        <FootprintTrail active={mode === "magic"} />
       </div>
 
       {uid === undefined && (
