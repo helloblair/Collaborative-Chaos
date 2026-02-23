@@ -3,17 +3,17 @@
 **Live:** [collaborative-chaos-j7ow.vercel.app](https://collaborative-chaos-j7ow.vercel.app/)
 **Repo:** [github.com/helloblair/Collaborative-Chaos](https://github.com/helloblair/Collaborative-Chaos)
 
-A production-scale collaborative whiteboard built with AI-first development methodology. Multiple users can brainstorm, create, and organize content in real-time with an AI agent that manipulates the board through natural language commands.
+A production-scale collaborative whiteboard built with AI-first development methodology. Multiple users can brainstorm, create, and organize content in real-time with an AI agent that manipulates the board through natural language commands. Features a dual-theme system (Aurora and Magic), a chat-based AI panel, undo support, and viewport culling for large boards.
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js, React, TypeScript, react-konva (HTML5 Canvas) |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind v4, react-konva (HTML5 Canvas) |
 | Backend | Next.js API Routes (serverless) |
 | Database | Firebase Firestore + Firebase Realtime Database |
 | Auth | Firebase Auth (Google OAuth) |
-| AI | Anthropic Claude API with function calling (tool use) |
+| AI | OpenAI GPT-4.1 Nano with function calling (tool use) |
 | Deployment | Vercel |
 
 ## Architecture Overview
@@ -23,24 +23,35 @@ A production-scale collaborative whiteboard built with AI-first development meth
 The app uses two Firebase databases, each optimized for a different access pattern:
 
 - **Firestore** handles persistent board state — objects, connectors, board metadata. Configured with `persistentLocalCache` for offline durability so users don't lose work on disconnect.
-- **Realtime Database (RTDB)** handles ephemeral high-frequency data — cursor positions broadcast at 20Hz, user presence, and drag telemetry. Optimized for low-latency pub/sub where durability doesn't matter.
+- **Realtime Database (RTDB)** handles ephemeral high-frequency data — cursor positions broadcast at 16ms intervals (~60Hz), user presence with idle detection, and drag telemetry. Optimized for low-latency pub/sub where durability doesn't matter.
 
 ### Canvas Rendering
 
 The Konva canvas is split into two layers to avoid unnecessary redraws:
 
-- **Objects layer** — renders board items (sticky notes, shapes, frames, text, connectors). Redraws only when object state changes.
+- **Objects layer** — renders board items (sticky notes, shapes, frames, text, connectors). Redraws only when object state changes. Uses viewport culling to render only visible items.
 - **Ephemeral layer** — renders cursors, selection rectangles, and drag previews. Redraws at cursor broadcast frequency without triggering object layer updates.
 
 ### AI Agent Pipeline
 
 The AI agent follows a structured pipeline that separates intent from execution:
 
-1. The LLM receives a serialized snapshot of the current viewport and outputs structured intent via function calling.
-2. A deterministic layout engine computes exact pixel coordinates for grid, row, column, and template arrangements.
-3. Batch Firestore writes apply the computed state atomically.
+1. The client sends a chat message along with a serialized snapshot of the current viewport to the `/api/ai-command` endpoint. Conversation history (last 4 messages) is included for multi-turn context.
+2. The LLM outputs structured intent via function calling. The first turn uses `tool_choice: "required"` to ensure tool use; subsequent turns use `"auto"`. Up to 10 agentic turns per request.
+3. A deterministic layout engine computes exact pixel coordinates for grid, row, column, and template arrangements. Template tools auto-populate sticky note content with `computeContainerChildLayout`.
+4. Batch Firestore writes apply the computed state via REST API, authenticated with the user's Firebase ID token (writes respect security rules).
+5. If the AI creates 2+ standalone sticky notes (not via a template tool), the server automatically wraps them in a frame titled with the user's command.
 
 Spatial reservations via Firestore transactions prevent concurrent AI commands from colliding. Each reservation carries a 30-second TTL for automatic cleanup on failure.
+
+### Dual-Theme System
+
+The app ships with two visual themes, toggled via a secret button in the top-right corner:
+
+- **Aurora** (default) — Deep navy-teal glassmorphism palette with animated aurora background drift. Glassmorphic panels with `backdrop-filter: blur(20px)`. Font: Geist sans-serif.
+- **Magic** — Harry Potter-inspired dark parchment/burgundy/gold palette. Cinzel serif headings, parchment texture overlays, and ink footprint trails on the canvas. All UI labels swap to wizarding equivalents (e.g. "Delete" becomes "Evanesco", "My Boards" becomes "The Great Hall").
+
+Theme state is persisted to `localStorage` and applied via ~50 CSS custom properties on `document.documentElement`. A radial clip-path reveal animation plays from the toggle button's click coordinates on theme switch.
 
 ### Conflict Resolution
 
@@ -51,15 +62,20 @@ Spatial reservations via Firestore transactions prevent concurrent AI commands f
 ## Features
 
 - Infinite canvas with smooth pan and zoom
-- Sticky notes, shapes (rectangle, circle, line), frames, standalone text, connectors with arrows
+- Sticky notes, shapes (rectangle, circle, line, heart), frames, standalone text, connectors with arrows
 - Move, resize, and rotate transforms via Konva Transformer
 - Single and multi-select (shift-click, drag-to-select), delete, duplicate, copy/paste
+- Undo system (Cmd/Ctrl+Z) supporting create, delete, move, update, and connector operations
 - Real-time multiplayer cursors with name labels
-- Presence awareness — see who's currently on the board
-- AI board agent (Cmd/Ctrl+K) with creation, manipulation, layout, and complex template commands
-- Deterministic layout engine for grid, row, column, and template arrangements
+- Presence awareness with idle detection — see who's online and who's away
+- AI chat panel ("Sorting Hat") with multi-turn conversation, creation, manipulation, layout, and template commands
+- Deterministic layout engine for grid, row, column, and template arrangements with auto-populated content
+- Auto-wrapping of loose AI-created stickies into labeled frames
+- Dual-theme system (Aurora / Magic) with animated transitions and full UI label remapping
 - Multi-board dashboard with invite links and board sharing
+- Redesigned landing page with product mockup, feature cards, and live board thumbnails
 - Offline persistence with graceful disconnect and reconnect
+- Viewport culling and React.memo optimizations for 500+ objects
 - RTDB security rules and Firestore board membership validation
 
 ## Getting Started
@@ -90,14 +106,14 @@ Spatial reservations via Firestore transactions prevent concurrent AI commands f
 
 ## AI Agent Commands
 
-Open the command bar with **Cmd+K** (Mac) or **Ctrl+K** (Windows/Linux). Example commands:
+Open the Sorting Hat panel by clicking the floating action button (bottom-right) or pressing **Cmd+K** / **Ctrl+K**. The panel supports multi-turn conversation — the AI remembers context from earlier messages. Example commands:
 
 - "Add a yellow sticky note that says 'User Research'"
-- "Create a SWOT analysis template"
+- "Create a SWOT analysis for launching a mobile app"
 - "Arrange these sticky notes in a grid"
 - "Move all pink sticky notes to the right side"
-- "Build a user journey map with 5 stages"
-- "Set up a retrospective board"
+- "Build a user journey map with 5 stages for an onboarding flow"
+- "Set up a retrospective board for our last sprint"
 
 ## Deployment
 
@@ -134,7 +150,7 @@ firebase functions:config:set \
   firebase.project_id="YOUR_PROJECT_ID" \
   firebase.client_email="YOUR_CLIENT_EMAIL" \
   firebase.private_key="YOUR_PRIVATE_KEY" \
-  anthropic.api_key="YOUR_ANTHROPIC_KEY"
+  openai.api_key="YOUR_OPENAI_KEY"
 
 # Deploy Firestore rules, RTDB rules, and hosting
 firebase deploy
@@ -152,6 +168,6 @@ firebase deploy --only firestore:rules,database
 |--------|--------|
 | Frame rate during pan/zoom/manipulation | 60 FPS |
 | Object sync latency | <100ms |
-| Cursor sync latency | <50ms |
-| Object count without degradation | 500+ |
+| Cursor sync latency | <50ms (16ms broadcast interval) |
+| Object count without degradation | 500+ (viewport culling + React.memo) |
 | Concurrent users | 5+ |
