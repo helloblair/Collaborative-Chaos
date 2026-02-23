@@ -482,6 +482,12 @@ export async function POST(req: NextRequest) {
     messages.push({ role: "user", content: userContent });
     const results: ActionResult[] = [];
 
+    // Track standalone stickies (created via createStickyNote, NOT via template helpers)
+    // so we can auto-wrap them in a frame after the loop.
+    const standaloneStickyIds: string[] = [];
+    const standaloneStickyPositions: Array<{ id: string; x: number; y: number; w: number; h: number }> = [];
+    let usedTemplateTools = false;
+
     // All Firestore writes go through the REST batch writer (user ID token, no admin credentials needed)
     const writer = new RestBatchWriter(PROJECT_ID, token);
 
@@ -542,8 +548,11 @@ export async function POST(req: NextRequest) {
 
         // ── createSWOTTemplate ──────────────────────────────────────────────
         } else if (toolName === "createSWOTTemplate") {
+          usedTemplateTools = true;
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
+          const topic = input.topic as string | null;
+          const wrapperTitle = topic ? `SWOT Analysis — ${topic}` : "SWOT Analysis";
           const layout = computeSWOTLayout(centerX, centerY);
           const frameIds: string[] = [];
           const allStickyIds: string[] = [];
@@ -579,7 +588,7 @@ export async function POST(req: NextRequest) {
           const swotMaxY = Math.max(...layout.frames.map(f => f.y + f.height));
           const swotWrapperId = nanoid();
           writer.set(itemsPath, swotWrapperId, {
-            type: "frame", title: "SWOT Analysis",
+            type: "frame", title: wrapperTitle,
             x: swotMinX - 40, y: swotMinY - 40,
             width: (swotMaxX - swotMinX) + 80, height: (swotMaxY - swotMinY) + 80,
             createdBy: uid, updatedAt: at,
@@ -595,9 +604,12 @@ export async function POST(req: NextRequest) {
 
         // ── createJourneyMap ────────────────────────────────────────────────
         } else if (toolName === "createJourneyMap") {
+          usedTemplateTools = true;
           const stages = (input.stages as string[]) ?? ["Stage 1", "Stage 2", "Stage 3"];
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
+          const topic = input.topic as string | null;
+          const jmWrapperTitle = topic ? `User Journey Map — ${topic}` : "User Journey Map";
           const layout = computeJourneyMapLayout(stages, centerX, centerY);
           const frameIds: string[] = [];
           const allStickyIds: string[] = [];
@@ -634,7 +646,7 @@ export async function POST(req: NextRequest) {
           const jmMaxY = Math.max(...layout.frames.map(f => f.y + f.height));
           const jmWrapperId = nanoid();
           writer.set(itemsPath, jmWrapperId, {
-            type: "frame", title: "User Journey Map",
+            type: "frame", title: jmWrapperTitle,
             x: jmMinX - 40, y: jmMinY - 40,
             width: (jmMaxX - jmMinX) + 80, height: (jmMaxY - jmMinY) + 80,
             createdBy: uid, updatedAt: at,
@@ -650,8 +662,11 @@ export async function POST(req: NextRequest) {
 
         // ── createRetroTemplate ─────────────────────────────────────────────
         } else if (toolName === "createRetroTemplate") {
+          usedTemplateTools = true;
           const centerX = (input.centerX as number) ?? (vb.x + vb.width / 2);
           const centerY = (input.centerY as number) ?? (vb.y + vb.height / 2);
+          const topic = input.topic as string | null;
+          const retroWrapperTitle = topic ? `Retrospective — ${topic}` : "Retrospective";
           const layout = computeRetroLayout(centerX, centerY);
           const frameIds: string[] = [];
           const allStickyIds: string[] = [];
@@ -686,7 +701,7 @@ export async function POST(req: NextRequest) {
           const retroMaxY = Math.max(...layout.frames.map(f => f.y + f.height));
           const retroWrapperId = nanoid();
           writer.set(itemsPath, retroWrapperId, {
-            type: "frame", title: "Retrospective",
+            type: "frame", title: retroWrapperTitle,
             x: retroMinX - 40, y: retroMinY - 40,
             width: (retroMaxX - retroMinX) + 80, height: (retroMaxY - retroMinY) + 80,
             createdBy: uid, updatedAt: at,
@@ -705,6 +720,14 @@ export async function POST(req: NextRequest) {
           const { toolResult, action } = executeTool(toolName, input, boardId, uid, writer, vb);
           toolResultContent = JSON.stringify(toolResult);
           results.push(action);
+
+          // Track standalone stickies for potential auto-wrapping
+          if (toolName === "createStickyNote" && action.id) {
+            const sx = (input.x as number) ?? (vb.x + vb.width / 2 - 100);
+            const sy = (input.y as number) ?? (vb.y + vb.height / 2 - 100);
+            standaloneStickyIds.push(action.id);
+            standaloneStickyPositions.push({ id: action.id, x: sx, y: sy, w: 140, h: 140 });
+          }
         }
 
         // Append tool result to conversation for multi-turn
@@ -714,6 +737,25 @@ export async function POST(req: NextRequest) {
           content: toolResultContent,
         });
       }
+    }
+
+    // Auto-wrap standalone stickies in a frame when 2+ were created outside
+    // of a template tool. This gives visual grouping to loose AI output.
+    if (standaloneStickyPositions.length >= 2 && !usedTemplateTools) {
+      const minX = Math.min(...standaloneStickyPositions.map(s => s.x));
+      const minY = Math.min(...standaloneStickyPositions.map(s => s.y));
+      const maxX = Math.max(...standaloneStickyPositions.map(s => s.x + s.w));
+      const maxY = Math.max(...standaloneStickyPositions.map(s => s.y + s.h));
+      const pad = 40;
+      const wrapperId = nanoid();
+      writer.set(itemsPath, wrapperId, {
+        type: "frame",
+        title: command.length > 60 ? command.slice(0, 57) + "…" : command,
+        x: minX - pad, y: minY - pad,
+        width: (maxX - minX) + pad * 2, height: (maxY - minY) + pad * 2,
+        createdBy: uid, updatedAt: new Date().toISOString(),
+      });
+      results.push({ tool: "autoWrapFrame", id: wrapperId });
     }
 
     // Flush all remaining writes in one batch so frames + content stickies
