@@ -1,0 +1,934 @@
+COLLABORATIVE CHAOS — INTERVIEW STUDY GUIDE
+=============================================
+Feature-by-Feature Breakdown: What the PRD Requires and How Your Code Delivers
+
+
+TABLE OF CONTENTS
+-----------------
+1.  Infinite Board with Pan/Zoom
+2.  Sticky Notes
+3.  Shapes (Rect, Circle, Line, Heart)
+4.  Connectors (Lines/Arrows)
+5.  Standalone Text Elements
+6.  Frames
+7.  Transforms (Move, Resize, Rotate)
+8.  Selection (Single, Multi, Drag-Box)
+9.  Operations (Delete, Duplicate, Copy/Paste)
+10. Real-Time Sync
+11. Multiplayer Cursors
+12. Presence Awareness
+13. Conflict Resolution
+14. Disconnect/Reconnect Resilience
+15. Board Persistence
+16. User Authentication
+17. Board Management & Invite Flow
+18. Performance (60 FPS, 500+ Objects, 5+ Users)
+19. AI Agent — Architecture & Agent Loop
+20. AI Agent — Tool Schema (12 Tools)
+21. AI Agent — Templates (SWOT, Journey Map, Retro)
+22. AI Agent — Reservation System (Concurrency)
+23. AI Agent — Client-Side Animation
+24. Tech Stack Summary
+25. Quick-Fire Q&A (Likely Interview Questions)
+
+
+================================================================================
+1. INFINITE BOARD WITH PAN/ZOOM
+================================================================================
+
+PRD Requirement: Infinite board with smooth pan/zoom.
+
+WHERE IT LIVES:
+- BoardCanvas.tsx — Konva Stage handles all pan/zoom
+
+HOW IT WORKS:
+- The entire canvas is a Konva Stage. There are no boundaries — users can pan
+  infinitely in any direction.
+- Zoom: Mouse wheel fires handleWheel(). Each tick multiplies scale by 1.05.
+  Scale is clamped between 0.4 (40%) and 2.5 (250%).
+- Zoom center is the mouse pointer. The math:
+    1. Convert pointer screen coords to world coords:
+       mousePointTo = (pointer - stagePos) / oldScale
+    2. After scaling, reposition stage so the same world point stays under cursor:
+       newPos = pointer - mousePointTo * newScale
+  This keeps zoom feeling natural — you zoom into what you're looking at.
+- Pan: Hold Space + drag, or middle-mouse drag. The stage position updates via
+  setStagePos(), and the viewport reference (viewportRef) updates so other
+  systems (culling, AI viewport) know the current view.
+
+KEY DETAIL FOR INTERVIEW:
+"We use Konva's Stage as our infinite canvas. Zoom is pointer-relative — we
+convert screen coordinates to world coordinates, apply the new scale, then
+reposition the stage so the point under the cursor stays fixed. Pan is
+space+drag. The scale is clamped to [0.4, 2.5] for usability."
+
+
+================================================================================
+2. STICKY NOTES
+================================================================================
+
+PRD Requirement: Create, edit text, change colors.
+
+WHERE IT LIVES:
+- StickyItem component in BoardCanvas.tsx (lines 364-476)
+- handleAddSticky() in BoardClient.tsx
+- Color picker in sidebar (BoardClient.tsx)
+
+HOW IT WORKS:
+- Creation: User clicks "Add Sticky" in sidebar. handleAddSticky() computes the
+  viewport center in world coordinates, then writes a new doc to Firestore:
+    addDoc(itemsRef, {
+      type: "sticky", text: "New note", x, y,
+      width: 160, height: 160, fill: "#C9E4DE",
+      createdBy: uid, updatedAt: serverTimestamp()
+    })
+- Rendering: StickyItem is a React.memo component containing a Konva Rect
+  (rounded corners, shadow) + Konva Text (word-wrapped).
+- Editing: Double-click triggers an HTML textarea overlay positioned at the
+  sticky's screen coordinates. On blur or Enter (not Shift+Enter), the text
+  persists via updateDoc(). The textarea is rendered in the DOM layer above the
+  Konva canvas.
+- Color: Select the sticky, then click a color swatch in the sidebar. This calls
+  updateDoc() with the new fill value. 7 preset colors available.
+
+KEY DETAIL FOR INTERVIEW:
+"Sticky notes are Konva Rect + Text groups. Text editing uses an HTML textarea
+overlay — not Konva's built-in text editing — because Konva's text input
+handling is limited. The overlay is positioned using the item's world-to-screen
+coordinate transform."
+
+
+================================================================================
+3. SHAPES (RECT, CIRCLE, LINE, HEART)
+================================================================================
+
+PRD Requirement: Rectangles, circles, lines with solid colors.
+
+WHERE IT LIVES:
+- RectItem, CircleItem, LineItem, HeartItem in BoardCanvas.tsx
+- handleAddRect/Circle/Line/Heart in BoardClient.tsx
+
+HOW IT WORKS:
+- Each shape type has its own React.memo component with custom equality function.
+- Rect: Konva Rect with stroke, shadow. Default 200x120, fill #C6DEF1.
+- Circle: Konva Ellipse (radius-based, not diameter). Default 150x150.
+- Line: Konva Line with two points [x1, y1, x2, y2] relative to the group
+  position. When selected, draggable endpoint circles appear so users can
+  reshape the line.
+- Heart: SVG path rendered via Konva Path. Normalized to 100x100 viewport, then
+  scaled by width/height. Default 120x120, fill #FFD7D7.
+
+ALL SHAPES SUPPORT:
+- Move (drag)
+- Resize (Konva Transformer)
+- Rotate (Konva Transformer rotation handle)
+- Color change (sidebar color picker)
+- Selection (click to select, orange stroke)
+
+KEY DETAIL FOR INTERVIEW:
+"All shape components are wrapped in React.memo with a custom equality function
+called boardItemEqual that only compares render-relevant fields like x, y, width,
+height, fill, text, rotation — not metadata fields like createdBy or updatedAt.
+This prevents unnecessary re-renders when only metadata changes."
+
+
+================================================================================
+4. CONNECTORS (LINES/ARROWS)
+================================================================================
+
+PRD Requirement: Lines/arrows connecting objects.
+
+WHERE IT LIVES:
+- ConnectorLine component in BoardCanvas.tsx
+- Connector type in src/types/board.ts
+- Connection logic in BoardClient.tsx
+
+HOW IT WORKS:
+- Each connector stores fromId and toId (references to board items), style
+  ("line" or "arrow"), and color.
+- Rendering: ConnectorLine calculates edge intersection points using
+  getItemBounds() and getEdgePoint(). This finds where the connection line
+  intersects the perimeter of each item, so lines connect at the edges — not
+  the center.
+- getEdgePoint uses the angle between item centers and the item's aspect ratio
+  to determine which edge (top, bottom, left, right) the line exits from, then
+  calculates the exact intersection point.
+
+CREATION FLOW:
+1. User clicks "Connect" tool in sidebar → activeTool = "connect"
+2. Click first item → connectSourceId is set, item gets blue stroke
+3. Mouse moves → preview line draws from source to cursor position
+4. Click second item → writes connector doc to Firestore
+5. Firestore onSnapshot fires → ConnectorLine renders
+
+CASCADE DELETE:
+When a board item is deleted, all connectors with fromId or toId matching that
+item are also deleted in the same writeBatch. This ensures no orphaned connectors.
+
+KEY DETAIL FOR INTERVIEW:
+"Connectors dynamically calculate edge intersection points based on item bounds
+and angles. When you delete an item, all its connectors are cascade-deleted in
+the same Firestore writeBatch for atomicity."
+
+
+================================================================================
+5. STANDALONE TEXT ELEMENTS
+================================================================================
+
+PRD Requirement: Standalone text elements.
+
+WHERE IT LIVES:
+- TextItem component in BoardCanvas.tsx (lines 500-609)
+- handleAddText in BoardClient.tsx
+
+HOW IT WORKS:
+- Text items render as a transparent hit-rect + Konva Text (no background, no
+  shadow — clean text appearance).
+- Default: 200px wide, auto-height, fill #1c1917, fontSize 20.
+- Creation: handleAddText() creates the item at viewport center, then sets
+  pendingTextEditId to immediately open the text editor.
+- Editing: Double-click opens HTML textarea overlay (same pattern as stickies).
+- Font size: When a text item is selected, the sidebar shows a font size picker
+  with options [12, 16, 20, 28, 40].
+- Text color: Uses the same color picker as shapes, but applies to fill.
+
+KEY DETAIL FOR INTERVIEW:
+"Text items differ from stickies — they have no background rect or shadow, just
+clean text. They also support configurable font sizes. On creation, we
+immediately open the editor so the user can start typing."
+
+
+================================================================================
+6. FRAMES
+================================================================================
+
+PRD Requirement: Group and organize content areas.
+
+WHERE IT LIVES:
+- FrameItem component in BoardCanvas.tsx (lines 630-700+)
+- Frame tool state in BoardClient.tsx
+
+HOW IT WORKS:
+- Frames are border-only containers with an editable title.
+- Default: 300x200, indigo (#6366f1) stroke.
+- Creation (two modes):
+  1. Sidebar button: Creates frame at viewport center with default size.
+  2. Frame tool: Set activeTool="frame", then click-and-drag on canvas to draw
+     a frame at custom position/size. Canvas shows crosshair cursor in this mode.
+- Title editing: Double-click the frame title → HTML <input> overlay (single-line,
+  unlike sticky's multi-line textarea). Enter or blur commits the title.
+- Frames don't automatically group child items — they're visual containers only.
+  The AI templates use frames as labeled quadrants (SWOT, retro columns).
+
+KEY DETAIL FOR INTERVIEW:
+"Frames use a single-line input for title editing, unlike stickies which use
+textareas. The frame tool lets you click-and-drag to draw custom-sized frames.
+Frames are visual containers — they don't have automatic child grouping."
+
+
+================================================================================
+7. TRANSFORMS (MOVE, RESIZE, ROTATE)
+================================================================================
+
+PRD Requirement: Move, resize, rotate objects.
+
+WHERE IT LIVES:
+- Drag handling in BoardCanvas.tsx (onDragStart/Move/End)
+- Konva Transformer in BoardCanvas.tsx
+- handleTransformEnd callback
+
+HOW IT WORKS:
+- Move: Konva's built-in draggable property. On dragEnd, the final position is
+  persisted to Firestore via updateDoc().
+- Resize/Rotate: Konva Transformer component wraps selected items. It provides
+  resize handles (corners/edges) and a rotation handle. On transformEnd:
+    1. Read the node's new scaleX, scaleY, rotation, x, y from Konva
+    2. Compute new width = originalWidth * scaleX, height = originalHeight * scaleY
+    3. Reset node scale to 1 (Konva uses scale for transform preview)
+    4. Persist width, height, rotation, x, y to Firestore
+- handleTransformEnd is a stable useCallback (not recreated per render) to avoid
+  perf issues with Konva event handlers.
+- Rotation is persisted in degrees and survives page refresh.
+
+GROUP DRAG:
+When multiple items are selected and you drag one, all selected items move
+together. The code computes the delta from the dragged item and applies it to all
+other selected items.
+
+KEY DETAIL FOR INTERVIEW:
+"Konva's Transformer handles resize/rotate visually using scale transforms. On
+transformEnd, we convert scale back to absolute width/height, reset the node
+scale to 1, and persist the final dimensions. This is because Konva's Transformer
+works via scale — we normalize back to absolute values for storage."
+
+
+================================================================================
+8. SELECTION (SINGLE, MULTI, DRAG-BOX)
+================================================================================
+
+PRD Requirement: Single and multi-select (shift-click, drag-to-select).
+
+HOW IT WORKS:
+- Single click: Sets selectedIds = [clickedItemId]. Orange stroke appears.
+- Shift+click: Toggles item in/out of selectedIds array.
+- Drag selection box: In "select" tool mode, clicking and dragging on the canvas
+  background draws a selection rectangle. On mouse-up, all items whose bounds
+  intersect the selection box are added to selectedIds.
+- Click empty canvas: Clears selection (selectedIds = []).
+- Selected connector: Separate state (selectedConnectorId) — only one connector
+  can be selected at a time, shown with different visual treatment.
+
+KEY DETAIL FOR INTERVIEW:
+"We track selectedIds as a string array. The selection box checks item bounds
+intersection. Connectors have their own separate selection state because they're
+a different entity type."
+
+
+================================================================================
+9. OPERATIONS (DELETE, DUPLICATE, COPY/PASTE)
+================================================================================
+
+PRD Requirement: Delete, duplicate, copy/paste.
+
+DELETE:
+- Keyboard: Delete/Backspace key when items selected
+- Sidebar: Delete button
+- Writes a Firestore writeBatch that deletes all selected items AND all
+  connectors touching those items (cascade delete)
+- Single batch = atomic operation
+
+DUPLICATE (Cmd/Ctrl+D):
+- Creates copies of all selected items with a +20px offset on both axes
+- New items get fresh IDs and the current user's uid as createdBy
+- Uses a single writeBatch for atomicity
+
+COPY (Cmd/Ctrl+C):
+- Stores selected items in a clipboardItems state variable (in-memory, not
+  system clipboard)
+- Resets pasteOffsetCountRef to 0
+
+PASTE (Cmd/Ctrl+V):
+- Calculates viewport center in world coordinates
+- Finds bounding box center of clipboard items
+- Offsets paste by (pasteCount + 1) * 20px on each axis
+- Each subsequent paste shifts 20px further (stagger pattern)
+- Creates new items with fresh IDs via writeBatch
+
+KEY DETAIL FOR INTERVIEW:
+"Copy/paste uses in-memory clipboard state, not the system clipboard. Each paste
+operation offsets 20px further than the previous one to prevent items stacking
+on top of each other. All batch operations use Firestore writeBatch for
+atomicity."
+
+
+================================================================================
+10. REAL-TIME SYNC
+================================================================================
+
+PRD Requirement: Object creation/modification appears instantly for all users.
+Target: < 100ms object sync latency.
+
+WHERE IT LIVES:
+- Firestore onSnapshot listeners in BoardClient.tsx (lines 213-280)
+- Items subscription and connectors subscription
+
+HOW IT WORKS:
+- On board mount, the client subscribes to two Firestore onSnapshot listeners:
+  1. boards/{boardId}/items → all board items
+  2. boards/{boardId}/connectors → all connectors
+- When ANY user creates/modifies/deletes an item, Firestore pushes the change
+  to ALL subscribed clients in real-time.
+- The listener callback uses structural sharing: it compares each incoming item
+  against the previous state. If render-relevant fields haven't changed, it
+  reuses the same object reference. This prevents React from re-rendering
+  unchanged items.
+
+WRITE PATTERN:
+- All mutations (create, update, delete) go through Firestore SDK methods:
+  addDoc, updateDoc, deleteDoc, writeBatch
+- Firestore handles conflict resolution automatically (last-write-wins)
+- serverTimestamp() is used for updatedAt fields
+
+KEY DETAIL FOR INTERVIEW:
+"Real-time sync uses Firestore's onSnapshot which pushes changes to all clients
+in real-time. We use structural sharing in the snapshot callback — comparing
+render-relevant fields and reusing object references for unchanged items. This
+prevents unnecessary React re-renders when an item's metadata changes but its
+visual properties haven't."
+
+
+================================================================================
+11. MULTIPLAYER CURSORS
+================================================================================
+
+PRD Requirement: Multiplayer cursors with names, real-time movement.
+Target: < 50ms cursor sync latency.
+
+WHERE IT LIVES:
+- RTDB subscription in BoardClient.tsx (lines 1054-1110)
+- Cursor rendering in BoardCanvas.tsx
+- CURSOR_THROTTLE_MS = 16 (line 24, BoardCanvas.tsx)
+
+HOW IT WORKS:
+- Each client writes its cursor position to Firebase Realtime Database at:
+  /boards/{boardId}/presence/{userId}-{sessionId}
+- Data written: { name, color, cursorX, cursorY, isOnline, lastActive }
+- Cursor position is throttled to 16ms (60fps) to balance smoothness vs writes.
+- Color is deterministic — derived from a hash of the userId, so each user
+  always gets the same color.
+- All clients subscribe to the presence path via RTDB onValue(). When any cursor
+  moves, all other clients see it in real-time.
+- Cursor rendering: Konva arrow/circle + text label positioned at the remote
+  user's world coordinates.
+
+WHY RTDB NOT FIRESTORE:
+- RTDB is optimized for high-frequency, low-latency writes (cursors move
+  constantly). Firestore has higher per-write latency and cost. Cursor data is
+  ephemeral — it doesn't need Firestore's querying or persistence guarantees.
+
+KEY DETAIL FOR INTERVIEW:
+"Cursor sync uses Firebase Realtime Database, not Firestore, because RTDB has
+lower latency and is designed for high-frequency ephemeral writes. We throttle
+cursor updates to 16ms (60fps). Cursor colors are deterministic — derived from
+a hash of the user ID."
+
+
+================================================================================
+12. PRESENCE AWARENESS
+================================================================================
+
+PRD Requirement: Clear indication of who's currently on the board.
+
+HOW IT WORKS:
+- The sidebar shows an "Online" section listing active users with their names
+  and colored indicators.
+- Presence is maintained via RTDB with three mechanisms:
+  1. Heartbeat: Every 8 seconds, clients update their presence entry with
+     { lastActive: serverTimestamp(), isOnline: true }
+  2. onDisconnect: Firebase's onDisconnect().remove() automatically deletes the
+     presence entry when the client's connection drops.
+  3. Stale filtering: When rendering the online list, entries older than 20
+     seconds (STALE_PRESENCE_MS) are filtered out.
+- Session ID: Each tab gets a unique session ID, so the same user in multiple
+  tabs appears as separate cursors.
+
+KEY DETAIL FOR INTERVIEW:
+"Presence uses a three-layer system: an 8-second heartbeat for active clients,
+onDisconnect().remove() for clean disconnections, and 20-second stale filtering
+as a fallback. Each browser tab gets a unique session ID so a user in multiple
+tabs appears correctly."
+
+
+================================================================================
+13. CONFLICT RESOLUTION
+================================================================================
+
+PRD Requirement: Handle simultaneous edits (last-write-wins acceptable).
+
+HOW IT WORKS:
+- The app uses Firestore's native last-write-wins semantics. There is no custom
+  conflict detection or resolution — the codebase contains multiple comments
+  reading "Firestore sync will reconcile" at error catch blocks.
+- When two users edit the same item simultaneously:
+  1. Both writes go to Firestore independently
+  2. The write that reaches Firestore last overwrites the first
+  3. Both clients receive the final state via onSnapshot
+  4. All clients converge to the same state
+- serverTimestamp() ensures consistent ordering on the backend.
+
+- For drag operations: the useDragBroadcast hook writes intermediate positions
+  to RTDB during the drag (every 50ms), then persists the final position to
+  Firestore on dragEnd. Other clients see the drag in progress via RTDB and
+  the final state via Firestore.
+
+- Priority order for rendering an item's position:
+  1. Local drag state (if this client is dragging it)
+  2. Remote drag state from RTDB (if another client is dragging it)
+  3. Firestore persisted state (ground truth)
+
+KEY DETAIL FOR INTERVIEW:
+"We use Firestore's native last-write-wins. During drags, we broadcast
+intermediate positions to RTDB at 50ms intervals so other users see smooth
+movement. On drag end, the final position is persisted to Firestore. Position
+rendering uses a priority chain: local drag > remote RTDB drag > Firestore state."
+
+
+================================================================================
+14. DISCONNECT/RECONNECT RESILIENCE
+================================================================================
+
+PRD Requirement: Graceful disconnect/reconnect handling.
+
+HOW IT WORKS:
+- onDisconnect().remove() — Firebase automatically removes the user's presence
+  entry when their WebSocket connection drops. No server-side logic needed.
+- Firestore onSnapshot listeners automatically reconnect when the network
+  returns. The listener receives a fresh snapshot of the current state, so the
+  client is instantly up-to-date.
+- RTDB onValue listeners also auto-reconnect with Firebase's built-in
+  reconnection logic.
+- Stale presence TTL (20 seconds) catches edge cases where onDisconnect doesn't
+  fire (e.g., device sleep, crash).
+- Retry logic: If the initial RTDB presence subscription gets a permission_denied
+  error, the client retries once after 500ms. This handles race conditions where
+  the board membership hasn't propagated yet.
+
+KEY DETAIL FOR INTERVIEW:
+"Firebase handles reconnection automatically for both Firestore and RTDB. Our
+onDisconnect handler cleans up presence, and the 20-second stale TTL is a safety
+net. The onSnapshot listener receives the full current state on reconnect, so
+clients always converge."
+
+
+================================================================================
+15. BOARD PERSISTENCE
+================================================================================
+
+PRD Requirement: Board state survives all users leaving and returning.
+
+HOW IT WORKS:
+- ALL board items and connectors are stored in Firestore (persistent NoSQL
+  database). RTDB is only used for ephemeral data (cursors, in-progress drags).
+- When all users leave and return later:
+  1. Firestore still has every item, connector, and board metadata
+  2. onSnapshot listeners fire with the full document set
+  3. The board renders exactly as it was left
+  4. RTDB presence entries are gone (cleaned up by onDisconnect), but that's
+     expected — presence should only show currently-online users
+
+KEY DETAIL FOR INTERVIEW:
+"Firestore is our persistent layer — all items and connectors survive indefinitely.
+RTDB is only for ephemeral data like cursors and active drags. This separation
+means the board is always recoverable even if RTDB data is lost."
+
+
+================================================================================
+16. USER AUTHENTICATION
+================================================================================
+
+PRD Requirement: User authentication.
+
+WHERE IT LIVES:
+- Client: src/lib/firebase.ts (Firebase client SDK init)
+- Server: src/lib/firebaseAdmin.ts (JWT verification)
+- Home page: src/app/page.tsx (login UI)
+
+HOW IT WORKS:
+- Google OAuth via Firebase Authentication.
+- Client calls signInWithPopup(auth, GoogleAuthProvider).
+- Firebase returns an ID token (JWT signed by Google).
+- Client stores auth state via browserLocalPersistence (survives tab close).
+- Server-side verification: API routes extract the Bearer token from the
+  Authorization header and verify it via Google's public JWKS (JSON Web Key Set).
+  No service account credentials required for verification.
+
+FLOW:
+1. User clicks "Sign in with Google" on home page
+2. Google OAuth popup appears
+3. Firebase Auth returns user profile + ID token
+4. Client subscribes to onAuthStateChanged to track auth state
+5. For API calls, client sends ID token as Bearer token
+6. Server verifies token signature against Google's public keys
+
+KEY DETAIL FOR INTERVIEW:
+"We use Firebase Auth with Google OAuth. Server-side verification uses Google's
+public JWKS endpoint — we don't need a service account to verify tokens. The
+token is sent as a Bearer token in API request headers."
+
+
+================================================================================
+17. BOARD MANAGEMENT & INVITE FLOW
+================================================================================
+
+WHERE IT LIVES:
+- Board CRUD: src/lib/boards.ts
+- Home page: src/app/page.tsx
+- Board access check: BoardClient.tsx (lines 157-196)
+
+BOARD CREATION:
+- User enters board name on home page → createBoard(name, uid, email)
+- Writes to Firestore: boards/{newId} with members: [uid], memberEmails: [email]
+- Redirects to /board/{newId}
+
+BOARD DASHBOARD:
+- Shows all boards where the user is a member
+- Each board card displays: name, member avatars (up to 3 + "+N"), member count,
+  relative last-updated time ("5m ago")
+- Owner can delete their boards
+
+INVITE FLOW:
+1. Board member clicks "Share" → copies URL: /board/{boardId}?invite=true
+2. Recipient opens URL → if not authenticated, sees login prompt
+3. If authenticated but not a member → sees "Join Board" button
+4. Click "Join Board" → joinBoard(boardId, uid, email) adds user to members array
+5. Firestore rules allow non-members to add themselves to the members array
+   specifically for this invite flow
+6. Page refreshes to "ok" state and loads the board
+
+KEY DETAIL FOR INTERVIEW:
+"The invite flow uses a URL query parameter (?invite=true). Firestore security
+rules specifically allow non-members to add themselves to a board's members array
+when joining. This is the only write operation a non-member can perform."
+
+
+================================================================================
+18. PERFORMANCE (60 FPS, 500+ OBJECTS, 5+ USERS)
+================================================================================
+
+PRD Targets: 60 FPS, 500+ objects, < 100ms sync, < 50ms cursor, 5+ users.
+
+VIEWPORT CULLING:
+- Only items within the current viewport + 200px buffer are rendered.
+- viewportWorldRect is computed via useMemo from stage position and scale.
+- Items outside the viewport are completely excluded from the React render tree.
+- Exceptions: selected items, AI-animating items, and connector endpoints are
+  always rendered (even if off-screen).
+
+REACT.MEMO + CUSTOM EQUALITY:
+- All 8 item components (Sticky, Rect, Circle, Line, Heart, Frame, Text) and
+  ConnectorLine are wrapped in React.memo.
+- Custom equality function boardItemEqual compares only render-relevant fields:
+  x, y, width, height, fill, text, title, rotation, fontSize, points.
+- Excludes createdBy, updatedAt — these don't affect rendering.
+
+STRUCTURAL SHARING:
+- The Firestore onSnapshot callback reuses object references for unchanged items.
+- This means React.memo's shallow comparison works correctly — unchanged items
+  keep the same reference and skip re-rendering.
+
+STABLE CALLBACKS:
+- handleTransformEnd is a useCallback (not recreated per render).
+- handleItemClick uses boardItemsRef (a ref) to access items without including
+  boardItems in its dependency array.
+
+THROTTLING:
+- Cursor broadcast: 16ms (60fps)
+- Drag broadcast to RTDB: 50ms
+
+STRESS TESTING:
+- ?debug=1 query param adds a "Add 500 Items" button
+- Uses src/lib/stressTest.ts to batch-create random items
+
+KEY DETAIL FOR INTERVIEW:
+"We use viewport culling with a 200px buffer to only render visible items.
+React.memo with custom equality functions prevents re-renders for unchanged items.
+Firestore's onSnapshot callback uses structural sharing — reusing object
+references so memo comparisons work correctly. Cursor sync is throttled to 16ms.
+We can verify 500+ object performance using the debug stress test button."
+
+
+================================================================================
+19. AI AGENT — ARCHITECTURE & AGENT LOOP
+================================================================================
+
+PRD Requirement: AI agent with 6+ distinct commands, multi-step execution.
+
+WHERE IT LIVES:
+- API route: src/app/api/ai-command/route.ts
+- Tool definitions: src/lib/aiTools.ts
+- Layout engine: src/lib/layoutEngine.ts
+- Client UI: BoardClient.tsx (AI command bar)
+
+CLIENT FLOW:
+1. User opens AI command bar (Cmd+K or button)
+2. Types a natural language command
+3. Client serializes: command text, boardId, viewportBounds (current view area),
+   viewportObjects (up to 50 visible items for context)
+4. POSTs to /api/ai-command with Bearer token
+
+SERVER FLOW:
+1. Verify Firebase ID token
+2. Write reservation doc (see section 22)
+3. Build system prompt with board context + viewport info + active reservations
+4. Enter agentic loop (up to 10 turns):
+   a. Call Claude claude-sonnet-4-20250514 with max_tokens 4096
+   b. If response contains tool_use blocks → execute each tool
+   c. Accumulate tool results, feed back to Claude
+   d. If response is text-only (no tool calls) → loop ends
+5. Flush any pending Firestore writes via RestBatchWriter
+6. Return { success, results[], createdIds[] }
+7. Delete reservation doc (in finally block)
+
+REST BATCH WRITER:
+- The AI route does NOT use Firebase Admin SDK for writes. Instead, it uses a
+  custom RestBatchWriter that makes individual PATCH/DELETE requests to the
+  Firestore REST API using the user's ID token.
+- Why: The Admin SDK's batchWrite requires service account OAuth2 scopes, but
+  token verification only needs Google's public JWKS. This avoids requiring
+  a service account for the AI feature.
+
+KEY DETAIL FOR INTERVIEW:
+"The AI agent uses an agentic loop — up to 10 turns of Claude calling tools and
+receiving results. We use the Firestore REST API with the user's own token
+instead of the Admin SDK to avoid needing service account credentials. This
+was an intentional architectural choice to simplify deployment."
+
+
+================================================================================
+20. AI AGENT — TOOL SCHEMA (12 TOOLS)
+================================================================================
+
+PRD Minimum: 9 tools (createStickyNote, createShape, createFrame, createConnector,
+moveObject, resizeObject, updateText, changeColor, getBoardState).
+
+ACTUAL IMPLEMENTATION (12 tools in aiTools.ts):
+
+CREATION TOOLS:
+1. createStickyNote(text, x, y, color) — Create sticky at position with color
+2. createShape(type, x, y, width, height, color) — Create rect/circle/line/heart
+3. createFrame(title, x, y, width, height) — Create labeled frame
+4. createConnector(fromId, toId, style) — Connect two items with line or arrow
+
+MANIPULATION TOOLS:
+5. moveObject(objectId, x, y) — Move item to new position
+6. changeColor(objectId, color) — Update item fill color
+7. resizeObject(objectId, width, height) — Update item dimensions
+8. updateText(objectId, newText) — Update text/sticky content
+
+QUERY TOOLS:
+9. getBoardState() — Fetch all current board items (for AI context)
+
+LAYOUT TOOLS:
+10. arrangeInGrid(itemIds, columns, startX, startY, gap) — Arrange items in grid
+    - Fetches real item sizes from Firestore
+    - Uses computeGridLayout from layoutEngine.ts
+    - Respects actual widths/heights for column/row sizing
+
+TEMPLATE TOOLS:
+11. createSWOTTemplate(centerX, centerY) — 4-quadrant SWOT analysis
+12. createJourneyMap(centerX, centerY, stages) — Horizontal journey map
+13. createRetroTemplate(centerX, centerY) — 3-column retrospective
+
+TOOL EXECUTION:
+- Most tools are synchronous — they queue writes in the RestBatchWriter.
+- arrangeInGrid and template tools are async — they fetch data from Firestore,
+  compute layouts, then queue writes.
+- After each tool batch, the RestBatchWriter is flushed before the next turn.
+
+KEY DETAIL FOR INTERVIEW:
+"We have 13 tools total — exceeding the PRD's minimum of 9. The arrangeInGrid
+tool is notable because it fetches actual item sizes from Firestore before
+computing the layout, so items with different dimensions are arranged correctly.
+Template tools use the layout engine for deterministic positioning."
+
+
+================================================================================
+21. AI AGENT — TEMPLATES (SWOT, JOURNEY MAP, RETRO)
+================================================================================
+
+SWOT TEMPLATE (createSWOTTemplate):
+- Layout: 2x2 grid of frames with 24px gaps
+- Each frame: 340x280
+- Labels: Strengths (mint), Weaknesses (red), Opportunities (blue), Threats (yellow)
+- computeSWOTLayout() returns positions for all 4 frames
+
+JOURNEY MAP (createJourneyMap):
+- Layout: Horizontal row of frames with connectors between them
+- Dynamic number of stages (user specifies or AI decides)
+- Each stage: 280x360
+- Connectors: Arrow-style links between adjacent stages
+- computeJourneyMapLayout() returns frame positions + connector metadata
+  (fromIndex, toIndex pairs)
+
+RETROSPECTIVE (createRetroTemplate):
+- Layout: 3 vertical columns
+- Labels: "What Went Well" (mint), "What Didn't" (red), "Action Items" (blue)
+- Each column: 300x500
+- computeRetroTemplate() returns positions for all 3 frames
+
+ALL TEMPLATES:
+- Use the viewport center as the anchor point
+- Create multiple Firestore documents in a single batch
+- Return createdIds for client-side animation
+
+KEY DETAIL FOR INTERVIEW:
+"Template tools use a deterministic layout engine — computeSWOTLayout,
+computeJourneyMapLayout, computeRetroTemplate. These compute exact pixel
+positions, ensuring consistent layouts regardless of viewport. The journey map
+is dynamic — it accepts a variable number of stages and creates connectors
+between adjacent stages."
+
+
+================================================================================
+22. AI AGENT — RESERVATION SYSTEM (CONCURRENCY)
+================================================================================
+
+PRD Requirement: Multiple users can issue AI commands simultaneously without conflict.
+
+HOW IT WORKS:
+1. Before calling the LLM, the API route writes a reservation doc to:
+   boards/{boardId}/reservations/{reservationId}
+   Content: { area: {x, y, w, h}, createdAt: timestamp }
+
+2. Stale cleanup: Any existing reservations older than 30 seconds (RESERVATION_TTL_MS)
+   are deleted.
+
+3. Active reservations are passed to the LLM in the system prompt:
+   "Active space reservations (avoid placing objects here): [{x, y, w, h}, ...]"
+
+4. The LLM uses this information to place new objects OUTSIDE reserved areas,
+   preventing two simultaneous AI commands from creating overlapping content.
+
+5. In the finally block, the reservation is deleted after the agent completes.
+
+EDGE CASES:
+- If the server crashes, the 30-second TTL ensures stale reservations are cleaned
+  up by the next AI command.
+- If admin credentials aren't available (dev mode), the reservation system silently
+  skips (try/catch with no-op).
+
+KEY DETAIL FOR INTERVIEW:
+"The reservation system is a spatial locking mechanism. Each AI command reserves
+a viewport area, and the LLM prompt includes all active reservations so it avoids
+those areas. This prevents two users' AI commands from creating overlapping
+content. Reservations have a 30-second TTL as a safety net."
+
+
+================================================================================
+23. AI AGENT — CLIENT-SIDE ANIMATION
+================================================================================
+
+HOW IT WORKS:
+- The API response includes createdIds[] — the IDs of all items the AI created.
+- Client sets aiCreatedIds state with these IDs.
+- A useEffect watches [aiCreatedIds, items]:
+  1. For each createdId, look up the Konva.Group node in itemNodesRef
+  2. If the node exists, animate it: start at opacity 0, scaleX/Y 0.88
+  3. Tween to opacity 1, scaleX/Y 1 with stagger: item[i] starts at i * 100ms
+  4. If node doesn't exist yet (Firestore snapshot hasn't arrived), the effect
+     retries when items state updates (because items is in the dependency array)
+
+NODE REGISTRATION:
+- Each item component (StickyItem, RectItem, etc.) calls onGroupMount(id, node)
+  in its useEffect, which stores the Konva.Group reference in itemNodesRef.
+- React guarantees children's effects run before parent's effects, so by the time
+  the animation effect runs, all item nodes are already registered.
+
+KEY DETAIL FOR INTERVIEW:
+"AI-created items animate in with a stagger effect — each item fades in and
+scales up with a 100ms delay between items. The animation system uses a retry
+pattern: if the Konva node isn't mounted yet when the effect runs, it retries
+on the next Firestore snapshot when the items state updates."
+
+
+================================================================================
+24. TECH STACK SUMMARY
+================================================================================
+
+FRONTEND:
+- Next.js 16 (App Router, React Server Components)
+- React 19
+- TypeScript
+- Tailwind CSS v4
+- Konva.js + react-konva (HTML5 Canvas rendering)
+
+BACKEND:
+- Next.js API Routes (serverless functions)
+- Firebase Firestore (persistent data)
+- Firebase Realtime Database (ephemeral presence/drag data)
+- Firebase Authentication (Google OAuth)
+- Firestore REST API (for AI route writes)
+
+AI:
+- Anthropic Claude (claude-sonnet-4-20250514)
+- Agentic tool-use loop (up to 10 turns)
+- 13 tools defined in aiTools.ts
+- Layout engine for deterministic template positioning
+
+DEPLOYMENT:
+- Vercel (inferred from Next.js)
+- Firebase project for backend services
+
+BUILD:
+- Turbopack (Next.js dev server)
+- @opentelemetry/api as optional dependency (firebase-admin peer dep workaround)
+- serverExternalPackages in next.config.ts for Firebase packages
+
+
+================================================================================
+25. QUICK-FIRE Q&A (LIKELY INTERVIEW QUESTIONS)
+================================================================================
+
+Q: Why Konva instead of DOM-based rendering?
+A: Canvas rendering scales to 500+ objects without DOM node explosion. DOM-based
+   rendering creates one element per object, causing layout thrashing and poor
+   performance. Konva gives us a single <canvas> element with direct draw calls.
+
+Q: Why Firestore AND Realtime Database?
+A: Firestore for persistent data (items, connectors, boards) — it has strong
+   consistency, complex queries, and offline support. RTDB for ephemeral
+   high-frequency data (cursors, active drags) — it has lower latency and is
+   cheaper for rapid writes. Different access patterns need different databases.
+
+Q: How do you handle 500+ objects without lag?
+A: Four techniques: (1) viewport culling — only render visible items plus 200px
+   buffer, (2) React.memo with custom equality — skip re-renders for unchanged
+   items, (3) structural sharing — reuse object references in Firestore listener,
+   (4) stable callbacks — prevent unnecessary re-renders from handler recreation.
+
+Q: How does your conflict resolution work?
+A: Last-write-wins via Firestore. No custom CRDT or OT. For drags, we broadcast
+   intermediate positions to RTDB so other users see smooth movement, then persist
+   the final position to Firestore. All clients converge via onSnapshot.
+
+Q: How does the AI agent handle multi-step commands?
+A: Agentic loop — Claude receives tools, calls them, sees results, and can call
+   more tools. Up to 10 turns. For example, "Create a SWOT analysis" triggers
+   createSWOTTemplate which creates 4 frames. "Arrange items in a grid" calls
+   getBoardState first to find items, then arrangeInGrid with their IDs.
+
+Q: How do you prevent concurrent AI commands from conflicting?
+A: Spatial reservation system. Each AI command writes a reservation doc with its
+   viewport area. The LLM prompt includes all active reservations and instructs
+   Claude to avoid those areas. 30-second TTL ensures cleanup.
+
+Q: Why REST API instead of Firebase Admin SDK for AI writes?
+A: Admin SDK's batchWrite requires service account OAuth2 scopes. Our token
+   verification uses Google's public JWKS — no service account needed. Using the
+   REST API with the user's token keeps the deployment simple and secure.
+
+Q: How does presence survive network drops?
+A: Three layers: (1) onDisconnect().remove() for clean drops, (2) 8-second
+   heartbeat for ongoing connection proof, (3) 20-second stale TTL for edge
+   cases. Combined, these ensure presence is always accurate within 20 seconds.
+
+Q: Walk me through what happens when a user creates a sticky note.
+A: User clicks "Add Sticky" → handleAddSticky() calculates viewport center in
+   world coords → addDoc() writes to Firestore → onSnapshot fires on ALL clients
+   → structural sharing check → StickyItem renders via React.memo → if it's an
+   AI-created item, stagger animation plays via Konva node.to().
+
+Q: How does your zoom work mathematically?
+A: Pointer-relative zoom. Convert mouse position to world coordinates:
+   worldPoint = (screenPoint - stagePos) / scale. Apply new scale. Reposition
+   stage: newStagePos = screenPoint - worldPoint * newScale. This keeps the point
+   under the cursor fixed while everything else scales around it.
+
+Q: How do connectors know where to anchor on items?
+A: getEdgePoint() calculates the intersection of the connector line with the
+   item's perimeter. It uses the angle between item centers and the item's aspect
+   ratio to determine which edge (top/bottom/left/right) the line exits from,
+   then computes the exact intersection point on that edge.
+
+Q: What happens if the AI agent crashes mid-execution?
+A: The reservation is deleted in a finally block, so it's cleaned up regardless.
+   Any items already written to Firestore persist (they're individual doc writes).
+   The 30-second TTL ensures any orphaned reservation gets cleaned up by the next
+   AI command. The client receives an error response and shows it to the user.
+
+Q: How do you handle the text editing overlay?
+A: We use HTML elements (textarea for stickies/text, input for frame titles)
+   positioned absolutely over the Konva canvas. We compute the screen position
+   by transforming the item's world coordinates through the current viewport
+   transform (position + scale). On blur or Enter, the text persists to Firestore.
+
+Q: What's your testing strategy for 5+ concurrent users?
+A: Open 5+ browser windows/tabs to the same board. Each gets a unique session ID.
+   The debug mode (?debug=1) provides a stress test button that creates 500 items
+   to test rendering performance. Network throttling tests are done via Chrome
+   DevTools to simulate poor connections.
+
+
+================================================================================
+END OF STUDY GUIDE
+================================================================================
