@@ -30,7 +30,7 @@ function DoorIcon() {
   );
 }
 
-export function ThemeToggle() {
+export function ThemeToggle({ chatOpen }: { chatOpen?: boolean } = {}) {
   const { mode, toggleTheme } = useTheme();
   const btnRef = useRef<HTMLButtonElement>(null);
 
@@ -42,7 +42,10 @@ export function ThemeToggle() {
   };
 
   return (
-    <div className="secret-toggle-container">
+    <div
+      className="secret-toggle-container"
+      style={chatOpen ? { right: "calc(340px + 0.75rem)", transition: "right 0.3s ease-out" } : { transition: "right 0.3s ease-out" }}
+    >
       {/* Particle burst on hover */}
       <span className="secret-particle secret-particle-1" />
       <span className="secret-particle secret-particle-2" />
