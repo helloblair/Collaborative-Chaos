@@ -5,6 +5,94 @@
 
 A production-scale collaborative whiteboard built with AI-first development methodology. Multiple users can brainstorm, create, and organize content in real-time with an AI agent that manipulates the board through natural language commands. Features a dual-theme system (Aurora and Magic), a chat-based AI panel, undo support, and viewport culling for large boards.
 
+> **Built solo by Kirsten Coronado** — design, architecture, frontend, backend, AI integration, and deployment.
+
+<!-- Screenshot / GIF placeholder — replace with actual recording -->
+<!-- ![Collaborative Chaos in action](docs/demo.gif) -->
+
+## System Architecture
+
+```mermaid
+flowchart TB
+    subgraph Client["Client — React 19 + Next.js 16"]
+        SHP["SortingHatPanel<br/><i>AI Chat UI</i>"]
+        BC["BoardClient<br/><i>State & Auth</i>"]
+        BCV["BoardCanvas<br/><i>Konva Renderer</i>"]
+        TP["ThemeProvider<br/><i>Aurora ↔ Magic</i>"]
+
+        SHP -->|"onSendCommand()"| BC
+        BC -->|"props + callbacks"| BCV
+        TP -.->|"theme context"| BC
+        TP -.->|"theme context"| BCV
+        TP -.->|"theme context"| SHP
+    end
+
+    subgraph API["API Layer — Serverless (Vercel)"]
+        AIR["/api/ai-command<br/><i>POST · Bearer auth</i>"]
+        subgraph AgentLoop["AI Agent Loop (≤10 turns)"]
+            LLM["Claude · GPT-4.1 Nano<br/><i>Structured function calling</i>"]
+            TE["Tool Executor<br/><i>createStickyNote, arrangeInGrid,<br/>createSWOTTemplate, …</i>"]
+            LE["Layout Engine<br/><i>Spiral, grid, template layouts</i>"]
+            LLM -->|"tool_choice: required (turn 1)"| TE
+            TE -->|"tool result"| LLM
+            TE --> LE
+        end
+        AIR --> AgentLoop
+    end
+
+    subgraph Data["Data Layer — Firebase"]
+        FS[("Firestore<br/><i>Persistent</i><br/>boards · items · connectors")]
+        RTDB[("Realtime DB<br/><i>Ephemeral</i><br/>cursors · presence · drags")]
+        AUTH["Firebase Auth<br/><i>Google OAuth</i>"]
+    end
+
+    %% Client ↔ Firestore
+    BC -->|"onSnapshot() subscriptions"| FS
+    BC -->|"writeBatch() · updateDoc()"| FS
+    BCV -->|"Konva render from<br/>Firestore state"| FS
+
+    %% Client ↔ RTDB
+    BC -->|"cursors @ 16ms · drags @ 50ms"| RTDB
+    BC -->|"onValue() listeners"| RTDB
+
+    %% Client → API
+    BC -->|"POST + Bearer token<br/>viewport + command"| AIR
+
+    %% API → Firestore (via user token)
+    TE -->|"REST writes<br/><i>user's ID token</i>"| FS
+
+    %% Auth
+    AUTH -->|"ID token"| BC
+    AIR -->|"verifyIdToken()"| AUTH
+
+    %% API → Client response
+    AIR -->|"{ createdIds[], reply }"| BC
+    BC -->|"stagger animation"| BCV
+
+    %% Canvas layers
+    subgraph Canvas["Konva Canvas"]
+        OL["Objects Layer<br/><i>State-driven redraws</i>"]
+        EL["Ephemeral Layer<br/><i>60Hz · cursors · particles</i>"]
+    end
+    BCV --> Canvas
+
+    RTDB -->|"cursor positions"| EL
+
+    classDef client fill:#1e293b,stroke:#38bdf8,color:#e2e8f0
+    classDef api fill:#1e293b,stroke:#a78bfa,color:#e2e8f0
+    classDef data fill:#1e293b,stroke:#34d399,color:#e2e8f0
+    classDef canvas fill:#0f172a,stroke:#fbbf24,color:#fbbf24
+
+    class SHP,BC,BCV,TP client
+    class AIR,LLM,TE,LE api
+    class FS,RTDB,AUTH data
+    class OL,EL canvas
+```
+
+**Why two databases?** Firestore is optimized for persistent, structured data with offline caching and security rules. RTDB is optimized for low-latency pub/sub at 60Hz — cursors, presence, and drag telemetry that doesn't need to survive a page refresh.
+
+**Why two canvas layers?** The objects layer redraws only when board state changes. The ephemeral layer redraws at cursor frequency (60Hz) for cursors, particles, and selection rectangles — without triggering expensive object re-renders.
+
 ## Tech Stack
 
 | Layer | Technology |
