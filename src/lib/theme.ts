@@ -102,6 +102,7 @@ export const auroraVars: Record<string, string> = {
   "--chat-fab-bg": "linear-gradient(135deg, rgba(7, 100, 107, 0.5), rgba(51, 144, 158, 0.35), rgba(141, 190, 213, 0.3))",
   "--chat-fab-border": "rgba(124, 210, 204, 0.3)",
   "--chat-fab-color": "#e0f4ff",
+  "--footprint-color": "rgba(30, 15, 8, 1)",
 };
 
 /* ─── Magic Theme: Harry Potter — parchment, burgundy, gold ──────────────── */
@@ -202,6 +203,7 @@ export const magicVars: Record<string, string> = {
   "--chat-fab-bg": "linear-gradient(135deg, rgba(139, 90, 43, 0.5), rgba(251, 191, 36, 0.3), rgba(120, 80, 30, 0.3))",
   "--chat-fab-border": "rgba(139, 90, 43, 0.4)",
   "--chat-fab-color": "#fbbf24",
+  "--footprint-color": "rgba(30, 15, 8, 1)",
 };
 
 /* ─── Magic Mode copy swaps ──────────────────────────────────────────────── */
@@ -253,4 +255,11 @@ export const magicCopy: Record<string, string> = {
   "Joining…": "Entering...",
   "Decline": "Turn Back",
   "items selected": "enchantments selected",
+  "Built for teams who think visually": "Crafted for Wizards Who Think in Spells",
+  "Real-Time Collaboration": "Floo Network Collaboration",
+  "AI Agent": "The Sorting Hat",
+  "Smart Templates": "Enchanted Templates",
+  "Instant Sync": "Time-Turner Sync",
+  "Rich Canvas Objects": "Magical Artefacts",
+  "Board Sharing": "Owl Post Sharing",
 };

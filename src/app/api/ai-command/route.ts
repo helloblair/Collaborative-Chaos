@@ -416,9 +416,20 @@ async function executeTool(
       return { toolResult: { success: true, id, x, y }, action: { tool: "createFrame", id, title: input.title } };
     }
     case "createConnector": {
+      const fromId = input.fromId as string;
+      const toId = input.toId as string;
+      if (fromId === toId) {
+        return { toolResult: { success: false, error: "Cannot connect an item to itself" }, action: { tool: "createConnector" } };
+      }
+      const allItemsForConn = await boardState.getItems();
+      const fromExists = allItemsForConn.some(i => i.id === fromId);
+      const toExists = allItemsForConn.some(i => i.id === toId);
+      if (!fromExists || !toExists) {
+        return { toolResult: { success: false, error: "Source or target item does not exist" }, action: { tool: "createConnector" } };
+      }
       const id = nanoid();
       writer.set(connectorsPath, id, {
-        boardId, fromId: input.fromId as string, toId: input.toId as string,
+        boardId, fromId, toId,
         style: (input.style as string) || "arrow", color: "#64748B",
         createdBy: uid, createdAt: at,
       });

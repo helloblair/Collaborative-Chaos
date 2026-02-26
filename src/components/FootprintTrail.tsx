@@ -21,12 +21,18 @@ export default function FootprintTrail({ active }: { active: boolean }) {
   const rafRef = useRef<number>(0);
   const lastPointRef = useRef<{ x: number; y: number; time: number }>({ x: 0, y: 0, time: 0 });
 
+  const blotColorRef = useRef("rgba(30, 15, 8, 1)");
+  useEffect(() => {
+    const v = getComputedStyle(document.documentElement).getPropertyValue("--footprint-color").trim();
+    if (v) blotColorRef.current = v;
+  }, [active]);
+
   const drawBlot = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, size: number, rotation: number, alpha: number) => {
     ctx.save();
     ctx.globalAlpha = alpha * 0.35;
     ctx.translate(x, y);
     ctx.rotate(rotation);
-    ctx.fillStyle = "rgba(30, 15, 8, 1)";
+    ctx.fillStyle = blotColorRef.current;
 
     // Main blot
     ctx.beginPath();
