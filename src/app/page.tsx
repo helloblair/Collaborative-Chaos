@@ -452,16 +452,25 @@ function RevealSection({ children, className = "", delay = 0 }: { children: Reac
 }
 
 /* ─── Landing Page (unauthenticated) ───────────────────────────────────── */
+const FEATURES = [
+  { icon: CollabIcon, title: "Real-Time Collaboration", desc: "Multiple cursors, live object sync, and presence awareness — all at 60Hz via Firebase RTDB." },
+  { icon: AIIcon, title: "AI Agent", desc: "Natural language commands create, arrange, and template content via structured function calling." },
+  { icon: TemplatesIcon, title: "Smart Templates", desc: "SWOT, journey maps, and retros auto-populate with content and deterministic grid layouts." },
+  { icon: SyncIcon, title: "Instant Sync", desc: "Dual-database architecture: Firestore for persistence, RTDB for ephemeral real-time data." },
+  { icon: ShapesIcon, title: "Rich Canvas Objects", desc: "Sticky notes, shapes, frames, text, connectors — with multi-select, resize, and rotate." },
+  { icon: ShareIcon, title: "Board Sharing", desc: "Invite via link, multi-board dashboard, and per-board membership controls." },
+];
+
 function LandingPage({ onLogin }: { onLogin: () => void }) {
   const { t } = useTheme();
 
   return (
-    <main className="fixed inset-0 overflow-hidden flex flex-col">
+    <main className="min-h-screen overflow-y-auto">
       <ThemeToggle />
 
-      {/* Single-screen layout */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-6 min-h-0">
-        <div className="w-full max-w-4xl flex flex-col items-center text-center gap-4 min-h-0">
+      {/* Hero section — fills viewport */}
+      <section className="min-h-screen flex flex-col items-center justify-center px-6 py-12">
+        <div className="w-full max-w-4xl flex flex-col items-center text-center gap-5">
           {/* Tagline */}
           <RevealSection>
             <p className="text-xs sm:text-sm font-semibold tracking-widest uppercase" style={{ color: "var(--text-accent)" }}>
@@ -479,11 +488,9 @@ function LandingPage({ onLogin }: { onLogin: () => void }) {
             </h1>
           </RevealSection>
 
-          {/* Product mockup — fills available space */}
-          <RevealSection delay={2} className="w-full flex-1 min-h-0 flex items-center">
-            <div className="w-full">
-              <ProductMockup />
-            </div>
+          {/* Product mockup */}
+          <RevealSection delay={2} className="w-full">
+            <ProductMockup />
           </RevealSection>
 
           {/* Description + CTA */}
@@ -500,12 +507,76 @@ function LandingPage({ onLogin }: { onLogin: () => void }) {
             </button>
           </RevealSection>
         </div>
-      </div>
+      </section>
 
-      {/* Footer pinned to bottom */}
-      <footer className="px-6 py-3 text-center shrink-0">
-        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-          Built with chaos, shipped with love.
+      {/* Feature cards */}
+      <section className="px-6 py-16 sm:py-24">
+        <div className="max-w-5xl mx-auto">
+          <RevealSection>
+            <h2
+              className="text-2xl sm:text-3xl font-bold text-center mb-12 tracking-tight"
+              style={{ color: "var(--text-heading)", fontFamily: "var(--font-heading)" }}
+            >
+              {t("Built for teams who think visually")}
+            </h2>
+          </RevealSection>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {FEATURES.map(({ icon: Icon, title, desc }, i) => (
+              <RevealSection key={title} delay={Math.min(i, 3) as 0 | 1 | 2 | 3}>
+                <div
+                  className="feature-card rounded-xl p-5 h-full"
+                  style={{
+                    background: "var(--glass-bg)",
+                    border: "1px solid var(--glass-border)",
+                    backdropFilter: "blur(var(--blur-glass))",
+                    WebkitBackdropFilter: "blur(var(--blur-glass))",
+                  }}
+                >
+                  <div className="mb-3 opacity-80"><Icon /></div>
+                  <h3 className="text-sm font-semibold mb-1.5" style={{ color: "var(--text-heading)" }}>{t(title)}</h3>
+                  <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>{desc}</p>
+                </div>
+              </RevealSection>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Bottom CTA */}
+      <section className="px-6 py-16 text-center">
+        <RevealSection>
+          <p className="text-sm sm:text-base mb-5" style={{ color: "var(--text-secondary)" }}>
+            Ready to turn chaos into collaboration?
+          </p>
+          <button
+            type="button"
+            onClick={onLogin}
+            className="btn-primary rounded-xl px-8 py-3 sm:py-4 text-sm sm:text-base font-semibold active:scale-95 transition-all"
+          >
+            Get Started Free
+          </button>
+        </RevealSection>
+      </section>
+
+      {/* Footer */}
+      <footer className="px-6 py-6 text-center flex flex-col items-center gap-1.5">
+        <div className="flex items-center gap-4">
+          <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            Built solo by Kirsten Coronado
+          </span>
+          <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>·</span>
+          <a
+            href="https://github.com/helloblair/Collaborative-Chaos"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] underline underline-offset-2 transition-colors"
+            style={{ color: "var(--text-accent)" }}
+          >
+            View Source on GitHub
+          </a>
+        </div>
+        <span className="text-[9px]" style={{ color: "var(--text-muted)", opacity: 0.6 }}>
+          © 2026 Collaborative Chaos
         </span>
       </footer>
     </main>
