@@ -270,7 +270,7 @@ export default function SortingHatPanel({ isOpen, onToggle, onSendCommand }: Pro
           const displayContent = msg.id === "welcome"
             ? (isAurora
               ? "Hello! I'm your AI assistant. I can help organize this canvas \u2014 create sticky notes, shapes, templates, and more. What would you like me to do?"
-              : msg.content)
+              : "Ahh, a new mind to sort! I am the Sorting Hat \u2014 place me upon your thoughts and I shall conjure sticky notes, summon templates, and arrange your enchantments. What spell shall we cast first?")
             : msg.content;
           return (
             <div key={msg.id} className="flex justify-start">
