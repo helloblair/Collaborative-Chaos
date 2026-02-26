@@ -30,7 +30,7 @@ flowchart TB
     subgraph API["API Layer — Serverless (Vercel)"]
         AIR["/api/ai-command<br/><i>POST · Bearer auth</i>"]
         subgraph AgentLoop["AI Agent Loop (≤10 turns)"]
-            LLM["Claude · GPT-4.1 Nano<br/><i>Structured function calling</i>"]
+            LLM["GPT-4.1 Nano<br/><i>Structured function calling</i>"]
             TE["Tool Executor<br/><i>createStickyNote, arrangeInGrid,<br/>createSWOTTemplate, …</i>"]
             LE["Layout Engine<br/><i>Spiral, grid, template layouts</i>"]
             LLM -->|"tool_choice: required (turn 1)"| TE
@@ -104,48 +104,29 @@ flowchart TB
 | AI | OpenAI GPT-4.1 Nano with function calling (tool use) |
 | Deployment | Vercel |
 
-## Architecture Overview
+## Key Design Decisions
 
-### Dual-Database Design
+### Intent vs. Geometry Separation (AI Pipeline)
 
-The app uses two Firebase databases, each optimized for a different access pattern:
+LLMs are poor at pixel arithmetic. Rather than asking the model to produce coordinates, the server separates *intent* (LLM decides what to create and how to label it) from *geometry* (a deterministic layout engine computes exact pixel coordinates). Template tools receive content as arguments and the server runs `computeContainerChildLayout` to pack stickies inside frames — no layout guesswork left to the model.
 
-- **Firestore** handles persistent board state — objects, connectors, board metadata. Configured with `persistentLocalCache` for offline durability so users don't lose work on disconnect.
-- **Realtime Database (RTDB)** handles ephemeral high-frequency data — cursor positions broadcast at 16ms intervals (~60Hz), user presence with idle detection, and drag telemetry. Optimized for low-latency pub/sub where durability doesn't matter.
+The first agentic turn forces `tool_choice: "required"` to prevent text-only responses; subsequent turns use `"auto"`. Conversation history (last 4 messages) travels with each request for multi-turn context. Up to 10 agentic turns per request for complex multi-step commands.
 
-### Canvas Rendering
+A Firestore reservation document (30-second TTL) prevents concurrent AI commands from colliding, ensuring board state stays coherent during simultaneous multi-user AI use.
 
-The Konva canvas is split into two layers to avoid unnecessary redraws:
+### Server Writes Use the User's Firebase ID Token (Not Admin SDK)
 
-- **Objects layer** — renders board items (sticky notes, shapes, frames, text, connectors). Redraws only when object state changes. Uses viewport culling to render only visible items.
-- **Ephemeral layer** — renders cursors, selection rectangles, and drag previews. Redraws at cursor broadcast frequency without triggering object layer updates.
-
-### AI Agent Pipeline
-
-The AI agent follows a structured pipeline that separates intent from execution:
-
-1. The client sends a chat message along with a serialized snapshot of the current viewport to the `/api/ai-command` endpoint. Conversation history (last 4 messages) is included for multi-turn context.
-2. The LLM outputs structured intent via function calling. The first turn uses `tool_choice: "required"` to ensure tool use; subsequent turns use `"auto"`. Up to 10 agentic turns per request.
-3. A deterministic layout engine computes exact pixel coordinates for grid, row, column, and template arrangements. Template tools auto-populate sticky note content with `computeContainerChildLayout`.
-4. Batch Firestore writes apply the computed state via REST API, authenticated with the user's Firebase ID token (writes respect security rules).
-5. If the AI creates 2+ standalone sticky notes (not via a template tool), the server automatically wraps them in a frame titled with the user's command.
-
-Spatial reservations via Firestore transactions prevent concurrent AI commands from colliding. Each reservation carries a 30-second TTL for automatic cleanup on failure.
-
-### Dual-Theme System
-
-The app ships with two visual themes, toggled via a secret button in the top-right corner:
-
-- **Aurora** (default) — Deep navy-teal glassmorphism palette with animated aurora background drift. Glassmorphic panels with `backdrop-filter: blur(20px)`. Font: Geist sans-serif.
-- **Magic** — Harry Potter-inspired dark parchment/burgundy/gold palette. Cinzel serif headings, parchment texture overlays, and ink footprint trails on the canvas. All UI labels swap to wizarding equivalents (e.g. "Delete" becomes "Evanesco", "My Boards" becomes "The Great Hall").
-
-Theme state is persisted to `localStorage` and applied via ~50 CSS custom properties on `document.documentElement`. A radial clip-path reveal animation plays from the toggle button's click coordinates on theme switch.
+The AI route writes to Firestore via the REST API authenticated with the end-user's Firebase ID token — not the Firebase Admin SDK. This means Firestore security rules apply to AI-generated writes exactly as they apply to client writes. The AI cannot create objects on boards the user isn't a member of, by construction.
 
 ### Conflict Resolution
 
-- **Object mutations:** Field-level last-write-wins using `updateDoc()`. Only modified fields are written, so concurrent edits to different properties (e.g., position vs. color) don't conflict.
-- **Text editing:** Local draft state is maintained during active text input. The Firestore write happens on blur/commit, not on every keystroke.
-- **Drag optimization:** Interim positions are broadcast via RTDB during drag so other users see smooth movement. A single Firestore write persists the final position on `dragEnd`.
+- **Object mutations:** Field-level last-write-wins via `updateDoc()`. Only modified fields are written, so concurrent edits to different properties (e.g., position vs. color) don't conflict.
+- **Text editing:** Local draft state is maintained during active text input; the Firestore write happens on blur/commit — not on every keystroke.
+- **Drag optimization:** Interim positions are broadcast via RTDB during drag for live visual feedback. A single Firestore write persists the final position on `dragEnd`.
+
+### Dual-Theme System
+
+Theme state is persisted to `localStorage` and applied atomically via ~50 CSS custom properties on `document.documentElement`. The Konva canvas receives theme colors as props (`boardBg`, `gridColor`, `cursorStrokeColor`) and re-renders accordingly. A radial `clip-path` reveal animation erupts from the toggle button's exact click coordinates, with the CSS variable swap timed to the animation midpoint.
 
 ## Features
 
