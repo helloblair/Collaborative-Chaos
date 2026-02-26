@@ -159,6 +159,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   const [aiCreatedIds, setAiCreatedIds] = useState<string[]>([]);
   const [centerOnIds, setCenterOnIds] = useState<string[]>([]);
 
+  // Deletion particle positions — BoardCanvas emits smoke at these coords
+  const [deletedPositions, setDeletedPositions] = useState<Array<{ x: number; y: number; w: number; h: number }>>([]);
+
   // Undo stack
   const undoStackRef = useRef<UndoEntry[]>([]);
   const [undoStackSize, setUndoStackSize] = useState(0);
@@ -644,6 +647,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
   // Delete all selected items with connector cascade
   const handleDeleteItems = useCallback(async () => {
     if (selectedIds.length === 0) return;
+    // Capture positions for smoke particles before deleting
+    const smokePositions: Array<{ x: number; y: number; w: number; h: number }> = [];
     // Snapshot data for undo before deleting
     const deletedItems: Array<{ id: string; data: Record<string, unknown> }> = [];
     const deletedConnectors: Array<{ id: string; data: Record<string, unknown> }> = [];
@@ -655,6 +660,8 @@ export default function BoardClient({ boardId }: { boardId: string }) {
         if (item) {
           const { id: _id, ...rest } = item;
           deletedItems.push({ id, data: { ...rest, updatedAt: serverTimestamp() } });
+          const bounds = getItemBounds(item);
+          smokePositions.push(bounds);
         }
         batch.delete(doc(collection(db, "boards", boardId, "items"), id));
         for (const conn of Object.values(connectors)) {
@@ -673,6 +680,7 @@ export default function BoardClient({ boardId }: { boardId: string }) {
       await batch.commit();
       pushUndo({ type: "delete-items", items: deletedItems, connectors: deletedConnectors.length > 0 ? deletedConnectors : undefined });
       setSelectedIds([]);
+      if (smokePositions.length > 0) setDeletedPositions(smokePositions);
     } catch {
       // Firestore sync will reconcile
     }
@@ -1866,6 +1874,9 @@ export default function BoardClient({ boardId }: { boardId: string }) {
             cursorStrokeColor={cursorStrokeColor}
             boardBg={boardBg}
             gridColor={gridColor}
+            themeMode={mode}
+            deletedPositions={deletedPositions}
+            onDeletePositionsConsumed={() => setDeletedPositions([])}
           />
         )}
         <FootprintTrail active={mode === "magic"} />

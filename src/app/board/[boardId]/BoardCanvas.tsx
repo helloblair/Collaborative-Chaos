@@ -2,9 +2,19 @@
 
 import type { BoardItem, Connector } from "@/types/board";
 import type Konva from "konva";
-import { Arrow, Circle, Ellipse, Group, Layer, Line, Path, Rect, Stage, Text, Transformer } from "react-konva";
+import { Arrow, Circle, Ellipse, Group, Layer, Line, Path, Rect, Shape, Stage, Text, Transformer } from "react-konva";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDragBroadcast } from "@/hooks/useDragBroadcast";
+import {
+  type Particle,
+  type TrailPoint,
+  emitSparks,
+  emitSmoke,
+  tickParticles,
+  drawParticles,
+  drawCursorTrails,
+  pruneTrails,
+} from "@/lib/particles";
 
 const NOOP = () => {};
 
@@ -89,6 +99,28 @@ function rectItemPropsEqual(prev: RectItemProps, next: RectItemProps): boolean {
 }
 
 function stickyItemPropsEqual(prev: StickyItemProps, next: StickyItemProps): boolean {
+  return (
+    boardItemEqual(prev.item, next.item) &&
+    prev.isSelected === next.isSelected &&
+    prev.isInMultiSelect === next.isInMultiSelect &&
+    prev.isConnectSource === next.isConnectSource &&
+    prev.isEditing === next.isEditing &&
+    prev.isRemoteDragging === next.isRemoteDragging &&
+    prev.activeTool === next.activeTool &&
+    prev.boardId === next.boardId &&
+    prev.uid === next.uid &&
+    prev.onSelect === next.onSelect &&
+    prev.onItemClick === next.onItemClick &&
+    prev.onDblClick === next.onDblClick &&
+    prev.onLocalDragMove === next.onLocalDragMove &&
+    prev.onLocalDragEnd === next.onLocalDragEnd &&
+    prev.onGroupMount === next.onGroupMount &&
+    prev.onTransformEnd === next.onTransformEnd &&
+    prev.onItemDragStart === next.onItemDragStart
+  );
+}
+
+function textItemPropsEqual(prev: TextItemProps, next: TextItemProps): boolean {
   return (
     boardItemEqual(prev.item, next.item) &&
     prev.isSelected === next.isSelected &&
@@ -620,7 +652,7 @@ const TextItem = memo(function TextItem({
       />
     </Group>
   );
-}, stickyItemPropsEqual);
+}, textItemPropsEqual);
 
 // ─── FrameItem sub-component ──────────────────────────────────────────────────
 
@@ -1121,6 +1153,12 @@ export type BoardCanvasProps = {
   boardBg?: string;
   /** Grid line stroke color — themed. */
   gridColor?: string;
+  /** Current theme mode — enables particle effects and cursor trails in magic mode. */
+  themeMode?: "aurora" | "magic";
+  /** World-coordinate positions of items that were just deleted — triggers smoke particles. */
+  deletedPositions?: Array<{ x: number; y: number; w: number; h: number }>;
+  /** Called after deletion smoke has been emitted so the parent can clear the array. */
+  onDeletePositionsConsumed?: () => void;
 };
 
 export function BoardCanvas({
@@ -1156,6 +1194,9 @@ export function BoardCanvas({
   cursorStrokeColor = "#0f0a1a",
   boardBg = "#f5f5f5",
   gridColor = "#f3f4f6",
+  themeMode = "aurora",
+  deletedPositions,
+  onDeletePositionsConsumed,
 }: BoardCanvasProps) {
   const [stageScale, setStageScale] = useState(1);
   const [stagePos, setStagePos] = useState({ x: 0, y: 0 });
@@ -1234,6 +1275,44 @@ export function BoardCanvas({
   // Effective items map ref for mouse-up intersection test
   const effectiveItemsByIdRef = useRef<Record<string, BoardItem>>({});
 
+  // ─── Particle system + cursor trails ────────────────────────────────────────
+  const particlesRef = useRef<Particle[]>([]);
+  const cursorTrailsRef = useRef<Map<string, TrailPoint[]>>(new Map());
+  const ephemeralLayerRef = useRef<Konva.Layer | null>(null);
+  const particleRafRef = useRef<number>(0);
+  const lastFrameRef = useRef<number>(0);
+
+  // rAF loop: ticks particles and forces ephemeral layer redraw when active
+  useEffect(() => {
+    let running = true;
+    const loop = (now: number) => {
+      if (!running) return;
+      const dt = lastFrameRef.current ? Math.min((now - lastFrameRef.current) / 1000, 0.05) : 0.016;
+      lastFrameRef.current = now;
+
+      const hasParticles = particlesRef.current.length > 0;
+      const hasTrails = cursorTrailsRef.current.size > 0;
+
+      if (hasParticles) {
+        particlesRef.current = tickParticles(particlesRef.current, dt);
+      }
+      if (hasTrails) {
+        pruneTrails(cursorTrailsRef.current, now);
+      }
+
+      if (hasParticles || hasTrails) {
+        ephemeralLayerRef.current?.batchDraw();
+      }
+
+      particleRafRef.current = requestAnimationFrame(loop);
+    };
+    particleRafRef.current = requestAnimationFrame(loop);
+    return () => {
+      running = false;
+      cancelAnimationFrame(particleRafRef.current);
+    };
+  }, []);
+
   const handleGroupMount = useCallback((id: string, node: Konva.Group | null) => {
     if (node) {
       itemNodesRef.current.set(id, node);
@@ -1280,13 +1359,33 @@ export function BoardCanvas({
       node.scaleX(0.88);
       node.scaleY(0.88);
 
-      // Tween to full opacity/scale after stagger delay
+      // Tween to full opacity/scale after stagger delay + emit sparks
       setTimeout(() => {
         node.to({ opacity: 1, scaleX: 1, scaleY: 1, duration: 0.28 });
+        // Emit golden spark burst at the item's center
+        const item = itemsRef.current.find((i) => i.id === id);
+        if (item) {
+          const bounds = getItemBounds(item);
+          const cx = bounds.x + bounds.w / 2;
+          const cy = bounds.y + bounds.h / 2;
+          particlesRef.current.push(...emitSparks(cx, cy, themeMode === "magic" ? 18 : 10));
+        }
       }, delay);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiCreatedIds, items]);
+
+  // Emit smoke particles when items are deleted (Evanesco)
+  useEffect(() => {
+    if (!deletedPositions || deletedPositions.length === 0) return;
+    for (const rect of deletedPositions) {
+      const cx = rect.x + rect.w / 2;
+      const cy = rect.y + rect.h / 2;
+      particlesRef.current.push(...emitSmoke(cx, cy, themeMode === "magic" ? 14 : 8));
+    }
+    onDeletePositionsConsumed?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deletedPositions]);
 
   // Auto-center viewport on AI-created items once they arrive from Firestore
   const centerAnimatedRef = useRef(false);
@@ -1780,6 +1879,26 @@ export function BoardCanvas({
     ) as [string, PresenceEntry][];
   }, [presenceMap, uid]);
 
+  // Track cursor positions for wand trails (magic theme only)
+  useEffect(() => {
+    if (themeMode !== "magic") {
+      cursorTrailsRef.current.clear();
+      return;
+    }
+    const now = performance.now();
+    for (const [key, p] of otherPresences) {
+      const trail = cursorTrailsRef.current.get(key) ?? [];
+      const lastPt = trail[trail.length - 1];
+      // Only add if cursor actually moved (avoids static dot buildup)
+      if (!lastPt || Math.abs(lastPt.x - p.cursorX) > 2 || Math.abs(lastPt.y - p.cursorY) > 2) {
+        trail.push({ x: p.cursorX, y: p.cursorY, t: now });
+        // Cap trail length
+        if (trail.length > 40) trail.splice(0, trail.length - 40);
+        cursorTrailsRef.current.set(key, trail);
+      }
+    }
+  }, [otherPresences, themeMode]);
+
   // Subtle grid lines every 40px across the full world so they persist when panning/zooming
   const gridLines = useMemo(() => {
     const vertical: number[] = [];
@@ -2151,7 +2270,7 @@ export function BoardCanvas({
           />
         </Layer>
         {/* Ephemeral layer — redraws at cursor frequency without touching board objects */}
-        <Layer listening={false}>
+        <Layer listening={false} ref={(node) => { ephemeralLayerRef.current = node; }}>
           {/* Other users' cursors (world space) */}
           {otherPresences.map(([key, p]) => (
             <Group key={key} x={p.cursorX} y={p.cursorY} listening={false}>
@@ -2167,6 +2286,25 @@ export function BoardCanvas({
               />
             </Group>
           ))}
+          {/* Particle effects + cursor trails — single Shape with custom draw for performance */}
+          <Shape
+            listening={false}
+            sceneFunc={(context) => {
+              const ctx = context._context as CanvasRenderingContext2D;
+              // Draw spell particles (sparks + smoke)
+              if (particlesRef.current.length > 0) {
+                drawParticles(ctx, particlesRef.current);
+              }
+              // Draw cursor trails (magic theme only)
+              if (themeMode === "magic" && cursorTrailsRef.current.size > 0) {
+                const colors = new Map<string, string>();
+                for (const [key, p] of otherPresences) {
+                  colors.set(key, p.color);
+                }
+                drawCursorTrails(ctx, cursorTrailsRef.current, performance.now(), colors);
+              }
+            }}
+          />
         </Layer>
       </Stage>
 
